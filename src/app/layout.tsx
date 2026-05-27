@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Sora } from "next/font/google";
 import { AuthProvider } from "@/components/auth-provider";
+import { StudyThemeProvider } from "@/components/study-theme-provider";
+import "katex/dist/katex.min.css";
 import "./globals.css";
 
 const sora = Sora({
@@ -35,7 +37,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={rootClasses}>
       <body className="min-h-full flex flex-col bg-[var(--color-bg)] text-[var(--color-text)]">
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <StudyThemeProvider>{children}</StudyThemeProvider>
+        </AuthProvider>
       </body>
     </html>
   );

@@ -85,6 +85,107 @@ a {
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+.study-shell {
+  min-height: 100vh;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    border-color 160ms ease;
+}
+
+.study-shell.light {
+  --study-bg: #f8fafc;
+  --study-surface: #ffffff;
+  --study-surface-soft: #f1f5f9;
+  --study-text: #0f172a;
+  --study-text-muted: #475569;
+  --study-text-soft: #64748b;
+  --study-border: #e2e8f0;
+  --study-button: #4f46e5;
+  --study-button-hover: #4338ca;
+  --study-math-surface: #f8fafc;
+  --study-math-divider: rgba(100, 116, 139, 0.16);
+  --study-math-accent: rgba(79, 70, 229, 0.12);
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.study-shell.dark {
+  --study-bg: #080f1d;
+  --study-surface: #101827;
+  --study-surface-soft: rgba(255, 255, 255, 0.045);
+  --study-text: #f8fafc;
+  --study-text-muted: #cbd5e1;
+  --study-text-soft: #94a3b8;
+  --study-border: rgba(255, 255, 255, 0.065);
+  --study-button: #475569;
+  --study-button-hover: #334155;
+  --study-math-surface: rgba(255, 255, 255, 0.035);
+  --study-math-divider: rgba(255, 255, 255, 0.055);
+  --study-math-accent: rgba(148, 163, 184, 0.12);
+  background:
+    radial-gradient(circle at 18% 8%, rgba(59, 130, 246, 0.08), transparent 28%),
+    radial-gradient(circle at 88% 0%, rgba(124, 58, 237, 0.07), transparent 24%),
+    #080f1d;
+  color: #f8fafc;
+}
+
+.exam-shell.light {
+  --study-bg: #f8fafc;
+  --study-surface: #ffffff;
+  --study-surface-soft: #eef2f7;
+  --study-text: #0f172a;
+  --study-text-muted: #475569;
+  --study-text-soft: #64748b;
+  --study-border: #cbd5e1;
+  --study-button: #334155;
+  --study-button-hover: #1e293b;
+}
+
+.exam-shell.dark {
+  --study-bg: #111827;
+  --study-surface: #1f2937;
+  --study-surface-soft: #111827;
+  --study-text: #f8fafc;
+  --study-text-muted: #d1d5db;
+  --study-text-soft: #9ca3af;
+  --study-border: rgba(255, 255, 255, 0.08);
+  --study-button: #4f46e5;
+  --study-button-hover: #4338ca;
+}
+
+.study-surface {
+  background: var(--study-surface);
+  border: 1px solid var(--study-border);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+}
+
+.study-surface-soft {
+  background: var(--study-surface-soft);
+  border: 1px solid var(--study-border);
+}
+
+.study-button {
+  background: var(--study-button);
+  color: #fff;
+}
+
+.study-button:hover {
+  background: var(--study-button-hover);
+}
+
+.math-solution-panel {
+  background:
+    linear-gradient(180deg, var(--study-math-accent), transparent 44%),
+    var(--study-math-surface);
+  border: 1px solid var(--study-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+.math-solution-divider > * + * {
+  border-top: 1px solid var(--study-math-divider);
+}
+
 .brand-ring {
   position: relative;
 }
