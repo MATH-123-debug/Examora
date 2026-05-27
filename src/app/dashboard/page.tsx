@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import { useAuth } from "@/components/auth-provider";
@@ -28,6 +29,7 @@ export default function DashboardHomePage() {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const { theme, toggleTheme } = useStudyTheme();
+  const [showMenu, setShowMenu] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -64,49 +66,56 @@ export default function DashboardHomePage() {
             <h1 className="mt-3 text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">
               Choose what you want to do right now.
             </h1>
-            <p
-              className="mt-3 max-w-2xl text-sm leading-7"
-              style={{ color: "var(--study-text-muted)" }}
-            >
-              Switch between guided study and focused exam practice without feeling like you are dropped straight into the wrong workspace.
-            </p>
           </div>
 
-          <div className="flex w-full items-center gap-2 sm:w-auto">
+          <div className="relative ml-auto">
             <button
               type="button"
-              onClick={toggleTheme}
-              className="flex-1 rounded-full px-4 py-2.5 text-sm font-semibold sm:flex-none"
+              onClick={() => setShowMenu((current) => !current)}
+              className="rounded-full px-4 py-2.5 text-sm font-semibold"
               style={{
                 border: "1px solid var(--study-border)",
                 background: "var(--study-surface-soft)",
                 color: "var(--study-text)",
               }}
             >
-              {theme === "dark" ? "Light" : "Dark"}
+              Menu
             </button>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="flex-1 rounded-full px-4 py-2.5 text-sm font-semibold sm:flex-none"
-              style={{
-                border: "1px solid var(--study-border)",
-                background: "var(--study-surface-soft)",
-                color: "var(--study-text)",
-              }}
-            >
-              Log out
-            </button>
+            {showMenu ? (
+              <div
+                className="study-surface absolute right-0 top-12 z-10 min-w-36 rounded-2xl p-1 shadow-lg"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    toggleTheme();
+                    setShowMenu(false);
+                  }}
+                  className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                  style={{ color: "var(--study-text)" }}
+                >
+                  {theme === "dark" ? "Light mode" : "Dark mode"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleLogout()}
+                  className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                  style={{ color: "var(--study-text)" }}
+                >
+                  Log out
+                </button>
+              </div>
+            ) : null}
           </div>
         </header>
 
-        <div className="mt-8 grid flex-1 gap-4 sm:mt-10 sm:gap-5 lg:grid-cols-2">
+        <div className="mt-6 grid flex-1 gap-3 sm:mt-8 sm:gap-4 lg:grid-cols-2">
           {modeCards.map((card) => (
             <button
               key={card.id}
               type="button"
               onClick={() => router.push(card.href)}
-              className="study-surface flex min-h-[160px] flex-col justify-between rounded-[1.7rem] p-5 text-left transition hover:-translate-y-1 sm:min-h-[220px] sm:rounded-[2rem] sm:p-6"
+              className="study-surface flex min-h-[128px] flex-col justify-between rounded-[1.4rem] p-4 text-left transition hover:-translate-y-1 sm:min-h-[184px] sm:rounded-[1.7rem] sm:p-5"
             >
               <div>
                 <p
@@ -115,16 +124,16 @@ export default function DashboardHomePage() {
                 >
                   {card.id === "study" ? "Learn" : "Practice"}
                 </p>
-                <h2 className="mt-4 text-2xl font-semibold">{card.title}</h2>
+                <h2 className="mt-3 text-xl font-semibold sm:text-2xl">{card.title}</h2>
                 <p
-                  className="mt-4 max-w-md text-sm leading-7"
+                  className="mt-3 max-w-md text-sm leading-6"
                   style={{ color: "var(--study-text-muted)" }}
                 >
                   {card.description}
                 </p>
               </div>
 
-              <div className="mt-6 flex flex-col items-start gap-3 sm:mt-8 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <div className="mt-4 flex flex-col items-start gap-3 sm:mt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <span
                   className="rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em]"
                   style={{

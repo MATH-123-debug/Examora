@@ -104,7 +104,7 @@ export async function POST(request: Request) {
         return NextResponse.json(
           {
             error:
-              "This PDF could not be read as selectable text. It may be scanned or image-based.",
+              "This PDF has little or no selectable text. It is likely scanned or image-heavy, and this version of Examora does not run OCR yet. Try a text-based PDF or convert it to DOCX first.",
           },
           { status: 422 },
         );

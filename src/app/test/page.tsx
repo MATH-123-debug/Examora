@@ -8,6 +8,7 @@ import {
   useState,
   type ChangeEvent,
 } from "react";
+import { signOut } from "firebase/auth";
 import {
   addDoc,
   collection,
@@ -19,7 +20,7 @@ import {
 } from "firebase/firestore";
 import { useAuth } from "@/components/auth-provider";
 import { useStudyTheme } from "@/components/study-theme-provider";
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 
 type ExamMode = "cbt" | "writing";
 type SourceType = "topic" | "outline" | "file";
@@ -74,6 +75,8 @@ type StoredExamResult = {
   scoreLabel: string;
   createdAt: string;
 };
+
+type ExamStage = "taking" | "summary" | "review";
 
 const sourceOptions: Array<{
   id: SourceType;
@@ -385,6 +388,16 @@ function writeLocalExamResults(results: ExamResultItem[]) {
   window.localStorage.setItem("examora-exam-results", JSON.stringify(serializable));
 }
 
+function parsePositiveInteger(value: string, max: number) {
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return Math.min(max, Math.round(parsed));
+}
+
 export default function TestPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -392,8 +405,8 @@ export default function TestPage() {
   const { theme, toggleTheme } = useStudyTheme();
   const [sourceType, setSourceType] = useState<SourceType>("topic");
   const [examMode, setExamMode] = useState<ExamMode>("cbt");
-  const [questionCount, setQuestionCount] = useState(10);
-  const [timeLimitMinutes, setTimeLimitMinutes] = useState(15);
+  const [questionCountInput, setQuestionCountInput] = useState("0");
+  const [timeLimitInput, setTimeLimitInput] = useState("0");
   const [topicText, setTopicText] = useState("");
   const [outlineText, setOutlineText] = useState("");
   const [attachment, setAttachment] = useState<AttachmentItem | null>(null);
@@ -406,8 +419,9 @@ export default function TestPage() {
   const [isExtracting, setIsExtracting] = useState(false);
   const [recentResults, setRecentResults] = useState<ExamResultItem[]>([]);
   const [hasSavedResult, setHasSavedResult] = useState(false);
-  const [showRecentResults, setShowRecentResults] = useState(false);
+  const [showPageMenu, setShowPageMenu] = useState(false);
   const [timeRemainingSeconds, setTimeRemainingSeconds] = useState(0);
+  const [examStage, setExamStage] = useState<ExamStage>("taking");
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -442,8 +456,10 @@ export default function TestPage() {
           questions: parsed.questions,
           timeLimitMinutes: parsedTimeLimitMinutes,
         });
-        setTimeLimitMinutes(parsedTimeLimitMinutes);
+        setQuestionCountInput(String(parsed.questions.length));
+        setTimeLimitInput(String(parsedTimeLimitMinutes));
         setTimeRemainingSeconds(parsedTimeLimitMinutes * 60);
+        setExamStage("taking");
       }
     } catch {
       setSession(null);
@@ -573,7 +589,9 @@ export default function TestPage() {
     session?.mode === "writing" && session.questions.length > 0
       ? Math.round(score / session.questions.length)
       : 0;
-  const isReviewMode = hasSubmitted;
+  const timeUsedSeconds = session
+    ? Math.max((session.timeLimitMinutes * 60) - timeRemainingSeconds, 0)
+    : 0;
   const missedQuestionIndexes = session
     ? session.questions
         .map((question, index) => {
@@ -602,7 +620,20 @@ export default function TestPage() {
     setHasSavedResult(false);
     setActiveQuestionIndex(0);
     setTimeRemainingSeconds(0);
+    setExamStage("taking");
+    setQuestionCountInput("0");
+    setTimeLimitInput("0");
     window.sessionStorage.removeItem("examora-test-session");
+  }
+
+  async function handleLogout() {
+    await signOut(auth);
+    router.replace("/login");
+  }
+
+  function submitExam() {
+    setHasSubmitted(true);
+    setExamStage("summary");
   }
 
   function handleRemoveAttachment() {
@@ -671,7 +702,7 @@ export default function TestPage() {
     }
 
     if (timeRemainingSeconds <= 0) {
-      setHasSubmitted(true);
+      submitExam();
       return;
     }
 
@@ -748,6 +779,8 @@ export default function TestPage() {
   async function handleGenerateExam() {
     const sourceText = sourceType === "outline" ? outlineText : topicText;
     const trimmedSourceText = sourceText.trim();
+    const parsedQuestionCount = parsePositiveInteger(questionCountInput, 30);
+    const parsedTimeLimitMinutes = parsePositiveInteger(timeLimitInput, 180);
     const content =
       sourceType === "file"
         ? attachment
@@ -766,6 +799,16 @@ export default function TestPage() {
       return;
     }
 
+    if (parsedQuestionCount === null) {
+      setError("Input the number of questions from 1 and above.");
+      return;
+    }
+
+    if (parsedTimeLimitMinutes === null) {
+      setError("Input the exam time from 1 minute and above.");
+      return;
+    }
+
     setError("");
     setIsGenerating(true);
 
@@ -778,11 +821,11 @@ export default function TestPage() {
         body: JSON.stringify({
           action: "generate_questions",
           inputType: sourceType === "file" ? "pdf" : sourceType,
-          questionCount,
+          questionCount: parsedQuestionCount,
           questionType: examMode,
           content: `${examMode === "writing" ? "Generate writing/theory exam questions. Do not create options. Provide a model answer in correctAnswer and marking guide in explanation." : "Generate CBT multiple-choice exam questions with four options."}
 ${sourceType === "outline" ? "Use all topics listed in the outline. Distribute the questions across the outline and do not stay on just one topic." : ""}
-Question count requested: ${questionCount}
+Question count requested: ${parsedQuestionCount}
 
 ${content}`,
         }),
@@ -827,8 +870,8 @@ ${content}`,
         title: typeof data?.title === "string" ? data.title : "Examora test",
         mode: examMode,
         sourceType,
-        questions: questions.slice(0, questionCount),
-        timeLimitMinutes,
+        questions: questions.slice(0, parsedQuestionCount),
+        timeLimitMinutes: parsedTimeLimitMinutes,
       };
 
       setSession(nextSession);
@@ -836,7 +879,8 @@ ${content}`,
       setHasSubmitted(false);
       setHasSavedResult(false);
       setActiveQuestionIndex(0);
-      setTimeRemainingSeconds(timeLimitMinutes * 60);
+      setExamStage("taking");
+      setTimeRemainingSeconds(parsedTimeLimitMinutes * 60);
       window.sessionStorage.setItem(
         "examora-test-session",
         JSON.stringify(nextSession),
@@ -874,48 +918,114 @@ ${content}`,
         />
 
         <section className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
-          <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <button
-              type="button"
-              onClick={() => router.push("/dashboard")}
-              className="w-full rounded-full px-4 py-2.5 text-sm font-semibold sm:w-auto"
-              style={{
-                border: "1px solid var(--study-border)",
-                color: "var(--study-text)",
-              }}
-            >
-              Back
-            </button>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="w-full rounded-full px-4 py-2.5 text-sm font-semibold sm:w-auto"
-              style={{
-                border: "1px solid var(--study-border)",
-                color: "var(--study-text)",
-              }}
-            >
-              {theme === "dark" ? "Light" : "Dark"} mode
-            </button>
-          </header>
-
-          <div className="grid flex-1 gap-5 py-5 sm:py-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+          <header className="flex items-center justify-between gap-3">
             <div>
               <p
-                className="text-xs font-semibold uppercase tracking-[0.28em]"
+                className="text-xs font-semibold uppercase tracking-[0.24em]"
                 style={{ color: "var(--study-text-soft)" }}
               >
                 Exam mode
               </p>
-              <h1 className="mt-4 max-w-xl text-3xl font-semibold tracking-[-0.04em] sm:text-4xl lg:text-5xl">
-                Build a real test before you start reading answers.
+              <h1 className="mt-2 text-lg font-semibold sm:text-xl">Build your test</h1>
+            </div>
+
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowPageMenu((current) => !current)}
+                className="rounded-full px-4 py-2.5 text-sm font-semibold"
+                style={{
+                  border: "1px solid var(--study-border)",
+                  background: "var(--study-surface-soft)",
+                  color: "var(--study-text)",
+                }}
+              >
+                Menu
+              </button>
+
+              {showPageMenu ? (
+                <div
+                  className="study-surface absolute right-0 top-12 z-20 min-w-60 rounded-2xl border p-1 shadow-lg"
+                  style={{ borderColor: "var(--study-border)" }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      router.push("/dashboard");
+                      setShowPageMenu(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                    style={{ color: "var(--study-text)" }}
+                  >
+                    Dashboard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toggleTheme();
+                      setShowPageMenu(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                    style={{ color: "var(--study-text)" }}
+                  >
+                    {theme === "dark" ? "Light mode" : "Dark mode"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleLogout();
+                      setShowPageMenu(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                    style={{ color: "var(--study-text)" }}
+                  >
+                    Log out
+                  </button>
+
+                  <div className="mt-1 border-t px-3 py-2" style={{ borderColor: "var(--study-border)" }}>
+                    <p
+                      className="text-xs font-semibold uppercase tracking-[0.16em]"
+                      style={{ color: "var(--study-text-soft)" }}
+                    >
+                      Recent results
+                    </p>
+                  </div>
+
+                  <div className="max-h-64 overflow-y-auto px-1 pb-1">
+                    {recentResults.length === 0 ? (
+                      <p className="px-3 py-2 text-sm" style={{ color: "var(--study-text-muted)" }}>
+                        No saved exam results yet.
+                      </p>
+                    ) : (
+                      recentResults.map((result) => (
+                        <div
+                          key={result.id}
+                          className="rounded-xl px-3 py-2"
+                          style={{ border: "1px solid var(--study-border)" }}
+                        >
+                          <p className="truncate text-sm font-semibold">{result.title}</p>
+                          <p className="mt-1 text-xs" style={{ color: "var(--study-text-soft)" }}>
+                            {result.scoreLabel} - {result.createdAtLabel}
+                          </p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </header>
+
+          <div className="grid flex-1 gap-5 py-5 sm:py-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+            <div>
+              <h1 className="max-w-xl text-3xl font-semibold tracking-[-0.04em] sm:text-4xl lg:text-5xl">
+                Build a focused test.
               </h1>
               <p
                 className="mt-4 max-w-xl text-sm leading-7"
                 style={{ color: "var(--study-text-muted)" }}
               >
-                Choose where the questions should come from, select CBT or writing,
-                then Examora creates a focused exam room with scoring and feedback.
+                Pick a source, set your question count and time, then start.
               </p>
             </div>
 
@@ -926,7 +1036,7 @@ ${content}`,
                     key={option.id}
                     type="button"
                     onClick={() => setSourceType(option.id)}
-                    className="rounded-[1.3rem] border p-4 text-left transition hover:-translate-y-0.5"
+                    className="rounded-[1.15rem] border p-3.5 text-left transition hover:-translate-y-0.5"
                     style={{
                       borderColor:
                         sourceType === option.id
@@ -939,10 +1049,7 @@ ${content}`,
                     }}
                   >
                     <p className="font-semibold">{option.title}</p>
-                    <p
-                      className="mt-2 text-xs leading-5"
-                      style={{ color: "var(--study-text-muted)" }}
-                    >
+                    <p className="mt-2 text-xs leading-5" style={{ color: "var(--study-text-muted)" }}>
                       {option.description}
                     </p>
                   </button>
@@ -978,7 +1085,7 @@ ${content}`,
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full rounded-[1.4rem] border border-dashed px-4 py-6 text-sm font-semibold"
+                      className="w-full rounded-[1.25rem] border border-dashed px-4 py-5 text-sm font-semibold"
                       style={{
                         borderColor: "var(--study-border)",
                         color: "var(--study-text)",
@@ -1018,10 +1125,10 @@ ${content}`,
                     }}
                     placeholder={
                       sourceType === "topic"
-                        ? "Example: Demand and supply in microeconomics"
-                        : "Paste your course outline here..."
+                        ? "Example: Demand and supply"
+                        : "Paste your outline..."
                     }
-                    className="min-h-40 w-full resize-none rounded-[1.4rem] border bg-transparent px-4 py-4 text-sm leading-7 outline-none"
+                    className="min-h-36 w-full resize-none rounded-[1.25rem] border bg-transparent px-4 py-4 text-sm leading-7 outline-none"
                     style={{
                       borderColor: "var(--study-border)",
                       color: "var(--study-text)",
@@ -1031,23 +1138,16 @@ ${content}`,
               </div>
 
               <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <label className="text-sm font-semibold">
                     Questions
                     <input
                       type="number"
-                      min={1}
-                      max={30}
-                      value={questionCount}
-                      onChange={(event) =>
-                        setQuestionCount(
-                          Math.min(
-                            30,
-                            Math.max(1, Number(event.target.value) || 1),
-                          ),
-                        )
-                      }
-                      className="ml-3 w-24 rounded-full border bg-transparent px-4 py-2 text-sm outline-none"
+                      min={0}
+                      inputMode="numeric"
+                      value={questionCountInput}
+                      onChange={(event) => setQuestionCountInput(event.target.value)}
+                      className="mt-2 block w-full rounded-full border bg-transparent px-4 py-2 text-sm outline-none"
                       style={{
                         borderColor: "var(--study-border)",
                         color: "var(--study-text)",
@@ -1059,18 +1159,11 @@ ${content}`,
                     Time (mins)
                     <input
                       type="number"
-                      min={1}
-                      max={180}
-                      value={timeLimitMinutes}
-                      onChange={(event) =>
-                        setTimeLimitMinutes(
-                          Math.min(
-                            180,
-                            Math.max(1, Number(event.target.value) || 1),
-                          ),
-                        )
-                      }
-                      className="ml-3 w-24 rounded-full border bg-transparent px-4 py-2 text-sm outline-none"
+                      min={0}
+                      inputMode="numeric"
+                      value={timeLimitInput}
+                      onChange={(event) => setTimeLimitInput(event.target.value)}
+                      className="mt-2 block w-full rounded-full border bg-transparent px-4 py-2 text-sm outline-none"
                       style={{
                         borderColor: "var(--study-border)",
                         color: "var(--study-text)",
@@ -1094,71 +1187,6 @@ ${content}`,
                   {error}
                 </p>
               ) : null}
-
-              <div className="mt-6 rounded-[1.5rem] border p-4" style={{ borderColor: "var(--study-border)" }}>
-                <div className="flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setShowRecentResults((current) => !current)}
-                    className="flex w-full items-center justify-between gap-3 text-left"
-                  >
-                    <div>
-                      <p
-                        className="text-xs font-semibold uppercase tracking-[0.18em]"
-                        style={{ color: "var(--study-text-soft)" }}
-                      >
-                        Recent results
-                      </p>
-                      <p className="mt-2 text-sm" style={{ color: "var(--study-text-muted)" }}>
-                        Your latest exam history and performance snapshots.
-                      </p>
-                    </div>
-                    <span
-                      className={`text-sm transition-transform ${showRecentResults ? "rotate-180" : ""}`}
-                      style={{ color: "var(--study-text-soft)" }}
-                    >
-                      v
-                    </span>
-                  </button>
-                </div>
-
-                {!showRecentResults ? null : recentResults.length === 0 ? (
-                  <p className="mt-4 text-sm" style={{ color: "var(--study-text-muted)" }}>
-                    No saved exam results yet.
-                  </p>
-                ) : (
-                  <div className="mt-4 space-y-3">
-                    {recentResults.map((result) => (
-                      <div
-                        key={result.id}
-                        className="rounded-[1.2rem] border px-4 py-3"
-                        style={{ borderColor: "var(--study-border)" }}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold">{result.title}</p>
-                            <p
-                              className="mt-1 text-xs uppercase tracking-[0.16em]"
-                              style={{ color: "var(--study-text-soft)" }}
-                            >
-                              {result.mode === "writing" ? "Writing" : "CBT"} - {result.createdAtLabel}
-                            </p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm font-semibold">{result.percentage}%</p>
-                            <p className="text-xs" style={{ color: "var(--study-text-soft)" }}>
-                              {result.label}
-                            </p>
-                          </div>
-                        </div>
-                        <p className="mt-2 text-sm" style={{ color: "var(--study-text-muted)" }}>
-                          Score: {result.scoreLabel}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         </section>
@@ -1168,202 +1196,158 @@ ${content}`,
 
   return (
     <main className={`study-shell ${theme}`}>
-          <div className="flex min-h-screen flex-col lg:flex-row">
-        <aside
-          className="shrink-0 border-b px-4 py-3 lg:w-72 lg:border-b-0 lg:border-r lg:px-5 lg:py-5"
-          style={{ borderColor: "var(--study-border)" }}
-        >
-          {isReviewMode ? (
-            <div
-              className="mb-4 rounded-[1.3rem] border px-4 py-3"
-              style={{
-                borderColor: "rgba(99,102,241,0.28)",
-                background: "rgba(99,102,241,0.10)",
-              }}
+      <section className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
+        <header className="flex items-center justify-between gap-3">
+          <div>
+            <p
+              className="text-xs font-semibold uppercase tracking-[0.22em]"
+              style={{ color: "var(--study-text-soft)" }}
             >
-              <p
-                className="text-xs font-semibold uppercase tracking-[0.18em]"
-                style={{ color: "var(--study-text-soft)" }}
-              >
-                Review mode
-              </p>
-              <p className="mt-2 text-sm" style={{ color: "var(--study-text-muted)" }}>
-                The exam attempt is finished. You are now reviewing your answers and corrections.
-              </p>
-            </div>
-          ) : null}
+              {examStage === "review" ? "Review mode" : "Exam room"}
+            </p>
+            <h1 className="mt-2 text-lg font-semibold sm:text-xl">{session.title}</h1>
+          </div>
 
-          <div className="flex items-center justify-between gap-3 lg:block">
-            <div>
-              <p
-                className="text-xs font-semibold uppercase tracking-[0.24em]"
-                style={{ color: "var(--study-text-soft)" }}
-              >
-                {isReviewMode
-                  ? session.mode === "cbt"
-                    ? "CBT review"
-                    : "Writing review"
-                  : session.mode === "cbt"
-                    ? "CBT test"
-                    : "Writing test"}
-              </p>
-              <h1 className="mt-2 text-lg font-semibold">{session.title}</h1>
-            </div>
+          <div className="relative">
             <button
               type="button"
-              onClick={resetExam}
-              className="rounded-full px-4 py-2 text-sm font-semibold"
+              onClick={() => setShowPageMenu((current) => !current)}
+              className="rounded-full px-4 py-2.5 text-sm font-semibold"
               style={{
                 border: "1px solid var(--study-border)",
+                background: "var(--study-surface-soft)",
                 color: "var(--study-text)",
               }}
             >
-              New test
+              Menu
             </button>
-          </div>
 
-          <div
-            className="mt-4 rounded-[1.3rem] p-4 text-sm"
-            style={{
-              background:
-                timerState === "critical"
-                  ? "rgba(239,68,68,0.14)"
-                  : timerState === "warning"
-                    ? "rgba(245,158,11,0.14)"
-                    : "var(--study-surface-soft)",
-              border:
-                timerState === "normal"
-                  ? "1px solid transparent"
-                  : timerState === "critical"
-                    ? "1px solid rgba(239,68,68,0.35)"
-                    : "1px solid rgba(245,158,11,0.35)",
-            }}
-          >
-            <p style={{ color: "var(--study-text-muted)" }}>
-              Answered {answeredCount} of {session.questions.length}
-            </p>
-            <p
-              className="mt-2 font-semibold"
-              style={{
-                color:
-                  timerState === "critical"
-                    ? "#fca5a5"
-                    : timerState === "warning"
-                      ? "#fcd34d"
-                      : "var(--study-text)",
-              }}
-            >
-              Time left: {formatTimeRemaining(timeRemainingSeconds)}
-            </p>
-            {!hasSubmitted && timerState !== "normal" ? (
-              <p
-                className="mt-2 text-xs font-semibold uppercase tracking-[0.14em]"
-                style={{
-                  color:
-                    timerState === "critical"
-                      ? "#fca5a5"
-                      : "#fcd34d",
-                }}
+            {showPageMenu ? (
+              <div
+                className="study-surface absolute right-0 top-12 z-20 min-w-52 rounded-2xl border p-1 shadow-lg"
+                style={{ borderColor: "var(--study-border)" }}
               >
-                {timerState === "critical"
-                  ? "Final minute. The test will auto-submit at zero."
-                  : "Less than five minutes left."}
-              </p>
-            ) : null}
-            {hasSubmitted ? (
-              <div className="mt-2 space-y-1">
-                <p className="font-semibold">
-                  Score: {score} / {maxScore}
-                </p>
-                <p className="text-sm font-semibold">
-                  {percentage}% - {performanceLabel}
-                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetExam();
+                    setShowPageMenu(false);
+                  }}
+                  className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                  style={{ color: "var(--study-text)" }}
+                >
+                  New test
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    router.push("/dashboard");
+                    setShowPageMenu(false);
+                  }}
+                  className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                  style={{ color: "var(--study-text)" }}
+                >
+                  Dashboard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    toggleTheme();
+                    setShowPageMenu(false);
+                  }}
+                  className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                  style={{ color: "var(--study-text)" }}
+                >
+                  {theme === "dark" ? "Light mode" : "Dark mode"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleLogout();
+                    setShowPageMenu(false);
+                  }}
+                  className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                  style={{ color: "var(--study-text)" }}
+                >
+                  Log out
+                </button>
               </div>
             ) : null}
           </div>
+        </header>
 
-          <div className="mt-3 grid grid-cols-6 gap-1.5 sm:grid-cols-8 lg:grid-cols-4 lg:gap-2">
-            {session.questions.map((question, index) => {
-              const isActive = index === activeQuestionIndex;
-              const isAnswered = Boolean(answers[question.id]?.trim());
-              const isCorrectAfterSubmit =
-                hasSubmitted &&
-                (session.mode === "writing"
-                  ? estimateWritingScore(
-                      answers[question.id] ?? "",
-                      question.correctAnswer || question.explanation,
-                    ) >= 7
-                  : areAnswersEquivalent(
-                      answers[question.id] ?? "",
-                      question.correctAnswer,
-                    ));
-              const isWrongAfterSubmit =
-                hasSubmitted && isAnswered && !isCorrectAfterSubmit;
-
-              return (
-                <button
-                  key={question.id}
-                  type="button"
-                  onClick={() => setActiveQuestionIndex(index)}
-                  className="h-9 rounded-xl text-xs font-semibold lg:h-10 lg:text-sm"
-                  style={{
-                    background: isActive
-                      ? "var(--study-button)"
-                      : isCorrectAfterSubmit
-                        ? "rgba(16,185,129,0.16)"
-                        : isWrongAfterSubmit
-                          ? "rgba(239,68,68,0.14)"
-                          : isAnswered
-                        ? "var(--study-surface-soft)"
-                        : "transparent",
-                    border: isWrongAfterSubmit
-                      ? "1px solid rgba(239,68,68,0.35)"
-                      : isCorrectAfterSubmit
-                        ? "1px solid rgba(16,185,129,0.35)"
-                        : "1px solid var(--study-border)",
-                    color: isActive ? "#ffffff" : "var(--study-text)",
-                    boxShadow:
-                      isReviewMode && isActive
-                        ? "0 0 0 3px rgba(99,102,241,0.15)"
-                        : "none",
-                  }}
-                >
-                  {index + 1}
-                </button>
-              );
-            })}
-          </div>
-        </aside>
-
-        <section className="flex flex-1 flex-col px-4 py-5 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <button
-              type="button"
-              onClick={() => router.push("/dashboard")}
-              className="w-full rounded-full px-4 py-2.5 text-sm font-semibold sm:w-auto"
-              style={{
-                border: "1px solid var(--study-border)",
-                color: "var(--study-text)",
-              }}
+        {examStage === "summary" ? (
+          <section className="mt-6 study-surface rounded-[2rem] p-5 sm:p-6">
+            <p
+              className="text-xs font-semibold uppercase tracking-[0.18em]"
+              style={{ color: "var(--study-text-soft)" }}
             >
-              Dashboard
-            </button>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="w-full rounded-full px-4 py-2.5 text-sm font-semibold sm:w-auto"
-              style={{
-                border: "1px solid var(--study-border)",
-                color: "var(--study-text)",
-              }}
-            >
-              {theme === "dark" ? "Light" : "Dark"}
-            </button>
-          </div>
+              Exam submitted
+            </p>
+            <h2 className="mt-3 text-3xl font-semibold">
+              {percentage}% - {performanceLabel}
+            </h2>
+            <p className="mt-3 text-sm leading-7" style={{ color: "var(--study-text-muted)" }}>
+              Your test is complete. Open review mode if you want to check each answer one by one.
+            </p>
 
-          <div
-            className="mt-4 inline-flex w-fit items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold"
-            style={{
+            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <div className="rounded-[1.2rem] border px-4 py-3" style={{ borderColor: "var(--study-border)" }}>
+                <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
+                  Overall
+                </p>
+                <p className="mt-2 text-xl font-semibold">{score} / {maxScore}</p>
+              </div>
+              <div className="rounded-[1.2rem] border px-4 py-3" style={{ borderColor: "rgba(16,185,129,0.28)" }}>
+                <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
+                  Correct
+                </p>
+                <p className="mt-2 text-xl font-semibold">{session.mode === "cbt" ? correctCount : averageWritingScore}</p>
+              </div>
+              <div className="rounded-[1.2rem] border px-4 py-3" style={{ borderColor: "rgba(239,68,68,0.28)" }}>
+                <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
+                  {session.mode === "cbt" ? "Wrong" : "Needs work"}
+                </p>
+                <p className="mt-2 text-xl font-semibold">{session.mode === "cbt" ? incorrectCount : missedQuestionIndexes.length}</p>
+              </div>
+              <div className="rounded-[1.2rem] border px-4 py-3" style={{ borderColor: "rgba(148,163,184,0.28)" }}>
+                <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
+                  Blank
+                </p>
+                <p className="mt-2 text-xl font-semibold">{unansweredCount}</p>
+              </div>
+              <div className="rounded-[1.2rem] border px-4 py-3" style={{ borderColor: "rgba(99,102,241,0.22)" }}>
+                <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
+                  Time used
+                </p>
+                <p className="mt-2 text-xl font-semibold">{formatTimeRemaining(timeUsedSeconds)}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => setExamStage("review")}
+                className="study-button rounded-full px-5 py-3 text-sm font-semibold text-white"
+              >
+                Review mode
+              </button>
+              <button
+                type="button"
+                onClick={resetExam}
+                className="rounded-full px-5 py-3 text-sm font-semibold"
+                style={{
+                  border: "1px solid var(--study-border)",
+                  color: "var(--study-text)",
+                }}
+              >
+                New test
+              </button>
+            </div>
+          </section>
+        ) : (
+          <>
+            <div className="mt-4 inline-flex w-fit items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold" style={{
               border:
                 timerState === "critical"
                   ? "1px solid rgba(239,68,68,0.35)"
@@ -1382,452 +1366,226 @@ ${content}`,
                   : timerState === "warning"
                     ? "#fcd34d"
                     : "var(--study-text)",
-            }}
-          >
-            <span>{timerState === "critical" ? "Time almost up" : "Timer"}</span>
-            <span>{formatTimeRemaining(timeRemainingSeconds)}</span>
-          </div>
+            }}>
+              <span>{timerState === "critical" ? "Time almost up" : "Timer"}</span>
+              <span>{formatTimeRemaining(timeRemainingSeconds)}</span>
+            </div>
 
-          {!hasSubmitted && timerState === "critical" ? (
-            <p
-              className="mt-3 text-sm font-medium"
-              style={{ color: "#fca5a5" }}
-            >
-              Less than one minute left. The exam will submit automatically when time ends.
-            </p>
-          ) : null}
+            <div className="mt-4">
+              <div className="h-2 overflow-hidden rounded-full" style={{ background: "var(--study-surface-soft)" }}>
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.max(6, Math.round(((activeQuestionIndex + 1) / session.questions.length) * 100))}%`,
+                    background:
+                      timerState === "critical"
+                        ? "#ef4444"
+                        : timerState === "warning"
+                          ? "#f59e0b"
+                          : "var(--study-button)",
+                  }}
+                />
+              </div>
+            </div>
 
-          {isReviewMode ? (
-            <section
-              className="mt-4 rounded-[1.8rem] border p-5 sm:p-6"
-              style={{
-                borderColor: "rgba(99,102,241,0.22)",
-                background: "rgba(99,102,241,0.08)",
-              }}
-            >
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p
-                    className="text-xs font-semibold uppercase tracking-[0.18em]"
-                    style={{ color: "var(--study-text-soft)" }}
-                  >
-                    Exam finished
-                  </p>
-                  <h2 className="mt-2 text-3xl font-semibold">
-                    {percentage}% - {performanceLabel}
-                  </h2>
-                  <p
-                    className="mt-3 max-w-2xl text-sm leading-7"
-                    style={{ color: "var(--study-text-muted)" }}
-                  >
-                    {session.mode === "cbt"
-                      ? "Your attempt has been submitted. Review the questions, corrections, and any missed areas below."
-                      : "Your theory attempt has been submitted. Review the score guidance, model answers, and improvement notes below."}
-                  </p>
+            <div className="study-surface mt-5 rounded-[2rem] p-5 sm:p-7">
+              {examStage === "review" ? (
+                <p className="text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--study-text-soft)" }}>
+                  Reviewing question {activeQuestionIndex + 1} of {session.questions.length}
+                </p>
+              ) : (
+                <p className="text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--study-text-soft)" }}>
+                  Question {activeQuestionIndex + 1} of {session.questions.length}
+                </p>
+              )}
+
+              <h2 className="mt-4 text-xl font-semibold leading-8">{activeQuestion.prompt}</h2>
+
+              {session.mode === "cbt" ? (
+                <div className="mt-6 grid gap-3">
+                  {activeQuestion.options.map((option) => {
+                    const selected = answers[activeQuestion.id] === option;
+                    const isCorrect = areAnswersEquivalent(option, activeQuestion.correctAnswer);
+
+                    return (
+                      <button
+                        key={option}
+                        type="button"
+                        disabled={examStage === "review"}
+                        onClick={() =>
+                          setAnswers((current) => ({
+                            ...current,
+                            [activeQuestion.id]: option,
+                          }))
+                        }
+                        className="rounded-[1.3rem] border px-4 py-4 text-left text-sm transition"
+                        style={{
+                          borderColor: selected ? "var(--study-button)" : "var(--study-border)",
+                          background:
+                            examStage === "review" && isCorrect
+                              ? "rgba(16,185,129,0.16)"
+                              : selected
+                                ? "var(--study-surface-soft)"
+                                : "transparent",
+                          color: "var(--study-text)",
+                        }}
+                      >
+                        {option}
+                      </button>
+                    );
+                  })}
                 </div>
+              ) : (
+                <textarea
+                  value={answers[activeQuestion.id] ?? ""}
+                  disabled={examStage === "review"}
+                  onChange={(event) =>
+                    setAnswers((current) => ({
+                      ...current,
+                      [activeQuestion.id]: event.target.value,
+                    }))
+                  }
+                  placeholder="Type your answer here like a real theory exam..."
+                  className="mt-6 min-h-40 w-full resize-none rounded-[1.5rem] border bg-transparent px-4 py-4 text-sm leading-7 outline-none sm:min-h-56"
+                  style={{
+                    borderColor: "var(--study-border)",
+                    color: "var(--study-text)",
+                  }}
+                />
+              )}
 
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div
-                    className="rounded-[1.2rem] border px-4 py-3"
-                    style={{ borderColor: "rgba(99,102,241,0.22)", background: "rgba(255,255,255,0.03)" }}
-                  >
-                    <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
-                      Overall
-                    </p>
-                    <p className="mt-2 text-xl font-semibold">{score} / {maxScore}</p>
-                  </div>
-                  {session.mode === "cbt" ? (
-                    <>
-                      <div
-                        className="rounded-[1.2rem] border px-4 py-3"
-                        style={{ borderColor: "rgba(16,185,129,0.28)", background: "rgba(255,255,255,0.03)" }}
-                      >
-                        <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
-                          Correct
+              {examStage === "review" ? (
+                <div className="mt-6 rounded-[1.5rem] border p-4 text-sm leading-7" style={{ borderColor: "var(--study-border)" }}>
+                  {session.mode === "writing" && writingReview ? (
+                    <div className="space-y-4">
+                      <p className="font-semibold">Estimated mark: {writingReview.score} / 10</p>
+                      <p className="rounded-2xl px-4 py-3 text-sm" style={{ background: "var(--study-surface-soft)", color: "var(--study-text)" }}>
+                        {writingReview.verdict}
+                      </p>
+                      <div>
+                        <p className="font-semibold">Your answer</p>
+                        <p className="mt-2 whitespace-pre-wrap" style={{ color: "var(--study-text-muted)" }}>
+                          {answers[activeQuestion.id]?.trim() || "No answer submitted."}
                         </p>
-                        <p className="mt-2 text-xl font-semibold">{correctCount}</p>
                       </div>
-                      <div
-                        className="rounded-[1.2rem] border px-4 py-3"
-                        style={{ borderColor: "rgba(239,68,68,0.28)", background: "rgba(255,255,255,0.03)" }}
-                      >
-                        <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
-                          Wrong
+                      <div>
+                        <p className="font-semibold">Model answer</p>
+                        <p className="mt-2 whitespace-pre-wrap" style={{ color: "var(--study-text-muted)" }}>
+                          {activeQuestion.correctAnswer}
                         </p>
-                        <p className="mt-2 text-xl font-semibold">{incorrectCount}</p>
                       </div>
-                      <div
-                        className="rounded-[1.2rem] border px-4 py-3"
-                        style={{ borderColor: "rgba(148,163,184,0.28)", background: "rgba(255,255,255,0.03)" }}
-                      >
-                        <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
-                          Blank
+                      <div>
+                        <p className="font-semibold">Marking guide</p>
+                        <p className="mt-2 whitespace-pre-wrap" style={{ color: "var(--study-text-muted)" }}>
+                          {activeQuestion.explanation}
                         </p>
-                        <p className="mt-2 text-xl font-semibold">{unansweredCount}</p>
                       </div>
-                    </>
+                    </div>
                   ) : (
-                    <>
-                      <div
-                        className="rounded-[1.2rem] border px-4 py-3"
-                        style={{ borderColor: "rgba(245,158,11,0.28)", background: "rgba(255,255,255,0.03)" }}
-                      >
-                        <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
-                          Average
-                        </p>
-                        <p className="mt-2 text-xl font-semibold">{averageWritingScore} / 10</p>
-                      </div>
-                      <div
-                        className="rounded-[1.2rem] border px-4 py-3"
-                        style={{ borderColor: "rgba(148,163,184,0.28)", background: "rgba(255,255,255,0.03)" }}
-                      >
-                        <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
-                          Review
-                        </p>
-                        <p className="mt-2 text-xl font-semibold">{missedQuestionIndexes.length}</p>
-                      </div>
-                    </>
+                    <div className="space-y-3">
+                      <p className="font-semibold">Your answer: {answers[activeQuestion.id] || "No answer selected"}</p>
+                      <p className="font-semibold">Correct answer: {activeQuestion.correctAnswer}</p>
+                      <p style={{ color: "var(--study-text-muted)" }}>{activeQuestion.explanation}</p>
+                    </div>
                   )}
                 </div>
-              </div>
-            </section>
-          ) : null}
-
-          <div className="mt-4">
-            <div
-              className="h-2 overflow-hidden rounded-full"
-              style={{ background: "var(--study-surface-soft)" }}
-            >
-              <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: `${Math.max(
-                    6,
-                    Math.round(((activeQuestionIndex + 1) / session.questions.length) * 100),
-                  )}%`,
-                  background:
-                    timerState === "critical"
-                      ? "#ef4444"
-                      : timerState === "warning"
-                        ? "#f59e0b"
-                        : "var(--study-button)",
-                }}
-              />
+              ) : null}
             </div>
-            <p
-              className="mt-2 text-xs uppercase tracking-[0.16em]"
-              style={{ color: "var(--study-text-soft)" }}
-            >
-              Progress through the exam
-            </p>
-          </div>
 
-          <div className="study-surface mt-5 flex-1 rounded-[2rem] p-5 sm:p-7">
-            {hasSubmitted ? (
-              <div
-                className="mb-5 rounded-[1.5rem] border p-4"
-                style={{ borderColor: "var(--study-border)", background: "var(--study-surface-soft)" }}
-              >
-                <p
-                  className="text-xs font-semibold uppercase tracking-[0.18em]"
-                  style={{ color: "var(--study-text-soft)" }}
-                >
-                  Review panel
-                </p>
-                <p className="mt-2 text-sm leading-7" style={{ color: "var(--study-text-muted)" }}>
-                  You are no longer taking the exam. Use this area to review each question, compare your answer with the correct answer, and understand what you missed.
-                </p>
-              </div>
-            ) : null}
+            <div className="mt-4 grid grid-cols-6 gap-2 sm:grid-cols-8">
+              {session.questions.map((question, index) => {
+                const isActive = index === activeQuestionIndex;
+                const isAnswered = Boolean(answers[question.id]?.trim());
+                const isCorrectAfterSubmit =
+                  hasSubmitted &&
+                  (session.mode === "writing"
+                    ? estimateWritingScore(
+                        answers[question.id] ?? "",
+                        question.correctAnswer || question.explanation,
+                      ) >= 7
+                    : areAnswersEquivalent(
+                        answers[question.id] ?? "",
+                        question.correctAnswer,
+                      ));
+                const isWrongAfterSubmit = hasSubmitted && isAnswered && !isCorrectAfterSubmit;
 
-            <p
-              className="text-xs font-semibold uppercase tracking-[0.22em]"
-              style={{ color: "var(--study-text-soft)" }}
-            >
-              {isReviewMode ? "Reviewing" : "Question"} {activeQuestionIndex + 1} of {session.questions.length}
-            </p>
-            <h2 className="mt-4 text-xl font-semibold leading-8">
-              {activeQuestion.prompt}
-            </h2>
-
-            {session.mode === "cbt" ? (
-              <div className="mt-6 grid gap-3">
-                {activeQuestion.options.map((option) => {
-                  const selected = answers[activeQuestion.id] === option;
-                  const isCorrect = areAnswersEquivalent(
-                    option,
-                    activeQuestion.correctAnswer,
-                  );
-
-                  return (
-                    <button
-                      key={option}
-                      type="button"
-                      disabled={hasSubmitted}
-                      onClick={() =>
-                        setAnswers((current) => ({
-                          ...current,
-                          [activeQuestion.id]: option,
-                        }))
-                      }
-                      className="rounded-[1.3rem] border px-4 py-4 text-left text-sm transition"
-                      style={{
-                        borderColor: selected
-                          ? "var(--study-button)"
-                          : "var(--study-border)",
-                        background: hasSubmitted && isCorrect
+                return (
+                  <button
+                    key={question.id}
+                    type="button"
+                    onClick={() => setActiveQuestionIndex(index)}
+                    className="h-10 rounded-xl text-xs font-semibold"
+                    style={{
+                      background: isActive
+                        ? "var(--study-button)"
+                        : isCorrectAfterSubmit
                           ? "rgba(16,185,129,0.16)"
-                          : selected
-                            ? "var(--study-surface-soft)"
-                            : "transparent",
-                        color: "var(--study-text)",
-                      }}
-                    >
-                      {option}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <textarea
-                value={answers[activeQuestion.id] ?? ""}
-                disabled={hasSubmitted}
-                onChange={(event) =>
-                  setAnswers((current) => ({
-                    ...current,
-                    [activeQuestion.id]: event.target.value,
-                  }))
-                }
-                placeholder="Type your answer here like a real theory exam..."
-                className="mt-6 min-h-40 w-full resize-none rounded-[1.5rem] border bg-transparent px-4 py-4 text-sm leading-7 outline-none sm:min-h-56 lg:min-h-72"
-                style={{
-                  borderColor: "var(--study-border)",
-                  color: "var(--study-text)",
-                }}
-              />
-            )}
-
-            {hasSubmitted ? (
-              <div
-                className="mt-6 rounded-[1.5rem] border p-4 text-sm leading-7"
-                style={{ borderColor: "var(--study-border)" }}
-              >
-                {session.mode === "writing" && writingReview ? (
-                  <div className="space-y-4">
-                    <p className="font-semibold">
-                      Estimated mark: {writingReview.score} / 10
-                    </p>
-                    <p
-                      className="rounded-2xl px-4 py-3 text-sm"
-                      style={{ background: "var(--study-surface-soft)", color: "var(--study-text)" }}
-                    >
-                      {writingReview.verdict}
-                    </p>
-
-                    <div>
-                      <p className="font-semibold">Your answer</p>
-                      <p
-                        className="mt-2 whitespace-pre-wrap"
-                        style={{ color: "var(--study-text-muted)" }}
-                      >
-                        {answers[activeQuestion.id]?.trim() || "No answer submitted."}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="font-semibold">Model answer</p>
-                      <p
-                        className="mt-2 whitespace-pre-wrap"
-                        style={{ color: "var(--study-text-muted)" }}
-                      >
-                        {activeQuestion.correctAnswer}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="font-semibold">Marking guide</p>
-                      <p
-                        className="mt-2 whitespace-pre-wrap"
-                        style={{ color: "var(--study-text-muted)" }}
-                      >
-                        {activeQuestion.explanation}
-                      </p>
-                    </div>
-
-                    <div>
-                      <p className="font-semibold">Why your answer is weak or wrong</p>
-                      <ul
-                        className="mt-2 space-y-2"
-                        style={{ color: "var(--study-text-muted)" }}
-                      >
-                        {writingReview.whyWrong.length > 0 ? (
-                          writingReview.whyWrong.map((item, index) => (
-                            <li key={`why-wrong-${index}`}>- {item}</li>
-                          ))
-                        ) : (
-                          <li>- Your answer matches the expected direction reasonably well.</li>
-                        )}
-                      </ul>
-                    </div>
-
-                    <div>
-                      <p className="font-semibold">What you did well</p>
-                      <ul
-                        className="mt-2 space-y-2"
-                        style={{ color: "var(--study-text-muted)" }}
-                      >
-                        {writingReview.strengths.map((item, index) => (
-                          <li key={`strength-${index}`}>- {item}</li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <div>
-                      <p className="font-semibold">What to improve</p>
-                      <ul
-                        className="mt-2 space-y-2"
-                        style={{ color: "var(--study-text-muted)" }}
-                      >
-                        {writingReview.missingPoints.length > 0 ? (
-                          writingReview.missingPoints.map((item, index) => (
-                            <li key={`missing-${index}`}>- {item}</li>
-                          ))
-                        ) : (
-                          <li>- Your content covers most of the expected points.</li>
-                        )}
-                      </ul>
-                    </div>
-
-                    <div>
-                      <p className="font-semibold">Language and grammar notes</p>
-                      <ul
-                        className="mt-2 space-y-2"
-                        style={{ color: "var(--study-text-muted)" }}
-                      >
-                        {writingReview.languageNotes.map((item, index) => (
-                          <li key={`language-${index}`}>- {item}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <p className="font-semibold">
-                      Your answer: {answers[activeQuestion.id] || "No answer selected"}
-                    </p>
-                    <p
-                      className="mt-2"
-                      style={{ color: "var(--study-text-muted)" }}
-                    >
-                      Review your selected option against the correct answer below.
-                    </p>
-                    <p className="font-semibold">
-                      Correct answer: {activeQuestion.correctAnswer}
-                    </p>
-                    <p
-                      className="mt-2"
-                      style={{ color: "var(--study-text-muted)" }}
-                    >
-                      {activeQuestion.explanation}
-                    </p>
-                  </>
-                )}
-              </div>
-            ) : null}
-          </div>
-
-          <div className="mt-5 flex flex-wrap items-center gap-3">
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setActiveQuestionIndex((current) => Math.max(0, current - 1))
-                }
-                className="rounded-full px-4 py-2.5 text-sm font-semibold"
-                style={{
-                  border: "1px solid var(--study-border)",
-                  color: "var(--study-text)",
-                }}
-              >
-                Prev
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setActiveQuestionIndex((current) =>
-                    Math.min(session.questions.length - 1, current + 1),
-                  )
-                }
-                className="rounded-full px-4 py-2.5 text-sm font-semibold"
-                style={{
-                  border: "1px solid var(--study-border)",
-                  color: "var(--study-text)",
-                }}
-              >
-                Next
-              </button>
+                          : isWrongAfterSubmit
+                            ? "rgba(239,68,68,0.14)"
+                            : isAnswered
+                              ? "var(--study-surface-soft)"
+                              : "transparent",
+                      border: "1px solid var(--study-border)",
+                      color: isActive ? "#ffffff" : "var(--study-text)",
+                    }}
+                  >
+                    {index + 1}
+                  </button>
+                );
+              })}
             </div>
 
-            {!hasSubmitted ? (
+            <div className="mt-5 flex items-center justify-between gap-4">
               <button
                 type="button"
-                onClick={() => setHasSubmitted(true)}
-                className="study-button rounded-full px-5 py-2.5 text-sm font-semibold text-white"
+                onClick={() => setActiveQuestionIndex((current) => Math.max(0, current - 1))}
+                disabled={activeQuestionIndex === 0}
+                className="rounded-full px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+                style={{
+                  border: "1px solid var(--study-border)",
+                  color: "var(--study-text)",
+                }}
               >
-                {timeRemainingSeconds <= 0 ? "Submitting..." : "Submit test"}
+                Previous
               </button>
-            ) : (
-              <div className="flex flex-wrap gap-2">
+
+              {examStage === "review" ? (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (missedQuestionIndexes.length > 0) {
-                      setActiveQuestionIndex(missedQuestionIndexes[0]);
-                    }
-                  }}
-                  className="rounded-full px-5 py-3 text-sm font-semibold"
+                  onClick={resetExam}
+                  className="study-button rounded-full px-5 py-2.5 text-sm font-semibold text-white"
+                >
+                  New test
+                </button>
+              ) : activeQuestionIndex === session.questions.length - 1 ? (
+                <button
+                  type="button"
+                  onClick={submitExam}
+                  className="study-button rounded-full px-5 py-2.5 text-sm font-semibold text-white"
+                >
+                  {timeRemainingSeconds <= 0 ? "Submitting..." : "Submit test"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveQuestionIndex((current) =>
+                      Math.min(session.questions.length - 1, current + 1),
+                    )
+                  }
+                  className="rounded-full px-4 py-2.5 text-sm font-semibold"
                   style={{
                     border: "1px solid var(--study-border)",
                     color: "var(--study-text)",
                   }}
                 >
-                  {missedQuestionIndexes.length > 0
-                    ? `Review missed (${missedQuestionIndexes.length})`
-                    : "Review answers"}
+                  Next
                 </button>
-                {!hasSubmitted || unansweredCount === 0 ? null : session.mode === "cbt" ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const firstUnanswered = session.questions.findIndex(
-                        (question) => !answers[question.id]?.trim(),
-                      );
-
-                      if (firstUnanswered >= 0) {
-                        setActiveQuestionIndex(firstUnanswered);
-                      }
-                    }}
-                    className="rounded-full px-5 py-3 text-sm font-semibold"
-                    style={{
-                      border: "1px solid var(--study-border)",
-                      color: "var(--study-text)",
-                    }}
-                  >
-                    Check blank answers
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={resetExam}
-                  className="study-button rounded-full px-5 py-3 text-sm font-semibold text-white"
-                >
-                  Start another test
-                </button>
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
+              )}
+            </div>
+          </>
+        )}
+      </section>
     </main>
   );
 }

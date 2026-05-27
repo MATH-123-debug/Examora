@@ -770,35 +770,6 @@ function getFollowUpInstruction(prompt: string) {
   return "This is a follow-up request. Continue from the immediately previous topic and answer it naturally.";
 }
 
-function looksLikeMathLine(line: string) {
-  const trimmed = line.trim();
-
-  if (!trimmed) {
-    return false;
-  }
-
-  const mathSignals = [
-    "=",
-    "∫",
-    "√",
-    "π",
-    "lim",
-    "sin",
-    "cos",
-    "tan",
-    "f(",
-    "dy/dx",
-    "d/dx",
-    "^",
-  ];
-
-  return (
-    mathSignals.some((signal) => trimmed.includes(signal)) ||
-    /[0-9][xya-z]/i.test(trimmed) ||
-    /[a-z]\([^)]+\)/i.test(trimmed)
-  );
-}
-
 function serializeConversation(conversation: ChatTurn[]) {
   return conversation
     .filter((turn) => !turn.isLoading)
@@ -981,6 +952,7 @@ export default function DashboardPage() {
   const [isExtractingFile, setIsExtractingFile] = useState(false);
   const [showInputMenu, setShowInputMenu] = useState(false);
   const [showRecentSessions, setShowRecentSessions] = useState(false);
+  const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [openSessionMenuId, setOpenSessionMenuId] = useState<string | null>(null);
@@ -1544,14 +1516,17 @@ export default function DashboardPage() {
       );
 
       if (parsed.questions.length > 0) {
+        const nextPracticeSession = {
+          title: parsed.title || sessionTitle,
+          mode: "cbt",
+          sourceType: currentAttachments.length > 0 ? "file" : "topic",
+          questions: parsed.questions,
+          timeLimitMinutes: Math.max(10, Math.min(45, parsed.questions.length * 2)),
+        };
+
         window.sessionStorage.setItem(
           "examora-test-session",
-          JSON.stringify({
-            title: parsed.title,
-            mode: "cbt",
-            sourceType: currentAttachments.length > 0 ? "file" : "topic",
-            questions: parsed.questions,
-          }),
+          JSON.stringify(nextPracticeSession),
         );
       }
     } catch (error) {
@@ -1597,8 +1572,8 @@ export default function DashboardPage() {
           throw new Error("Only PDF and DOCX files are supported right now.");
         }
 
-        if (file.size > 10 * 1024 * 1024) {
-          throw new Error("Each file must be under 10MB.");
+        if (file.size > 20 * 1024 * 1024) {
+          throw new Error("Each file must be under 20MB.");
         }
 
         const formData = new FormData();
@@ -1664,7 +1639,20 @@ export default function DashboardPage() {
     fileInputRef.current?.click();
   }
 
-  function handleStartTest() {
+  function handleStartTest(response?: StudyResponse) {
+    if (response?.questions.length) {
+      window.sessionStorage.setItem(
+        "examora-test-session",
+        JSON.stringify({
+          title: response.title || "Examora practice test",
+          mode: "cbt",
+          sourceType: attachments.length > 0 ? "file" : "topic",
+          questions: response.questions,
+          timeLimitMinutes: Math.max(10, Math.min(45, response.questions.length * 2)),
+        }),
+      );
+    }
+
     router.push("/test");
   }
 
@@ -1707,7 +1695,7 @@ export default function DashboardPage() {
                 <button
                   type="button"
                   onClick={() => setShowRecentSessions((current) => !current)}
-                  className="flex items-center gap-1 text-xs"
+                  className="hidden items-center gap-1 text-xs md:flex"
                   style={{ color: "var(--study-text-soft)" }}
                 >
                   Recent sessions
@@ -1718,21 +1706,107 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className="rounded-full px-3 py-2 text-xs font-semibold"
-              style={{
-                border: "1px solid var(--study-border)",
-                background: "var(--study-surface-soft)",
-                color: "var(--study-text)",
-              }}
-            >
-              {theme === "dark" ? "Light" : "Dark"}
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowWorkspaceMenu((current) => !current)}
+                className="rounded-full px-3 py-2 text-xs font-semibold"
+                style={{
+                  border: "1px solid var(--study-border)",
+                  background: "var(--study-surface-soft)",
+                  color: "var(--study-text)",
+                }}
+              >
+                Menu
+              </button>
+
+              {showWorkspaceMenu ? (
+                <div
+                  className="study-surface absolute right-0 top-12 z-20 min-w-52 rounded-2xl border p-1 shadow-lg md:hidden"
+                  style={{ borderColor: "var(--study-border)" }}
+                >
+                  {user ? (
+                    <div className="border-b px-3 py-2 text-xs" style={{ borderColor: "var(--study-border)" }}>
+                      <p className="font-semibold" style={{ color: "var(--study-text)" }}>
+                        {user.displayName || "Student"}
+                      </p>
+                      <p className="mt-1 break-all" style={{ color: "var(--study-text-soft)" }}>
+                        {user.email}
+                      </p>
+                    </div>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleNewChat();
+                      setShowWorkspaceMenu(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                    style={{ color: "var(--study-text)" }}
+                  >
+                    New chat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowRecentSessions((current) => !current);
+                      setShowWorkspaceMenu(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                    style={{ color: "var(--study-text)" }}
+                  >
+                    Recent sessions
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      router.push("/dashboard");
+                      setShowWorkspaceMenu(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                    style={{ color: "var(--study-text)" }}
+                  >
+                    Dashboard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      router.push("/test");
+                      setShowWorkspaceMenu(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                    style={{ color: "var(--study-text)" }}
+                  >
+                    Exam mode
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toggleTheme();
+                      setShowWorkspaceMenu(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                    style={{ color: "var(--study-text)" }}
+                  >
+                    {theme === "dark" ? "Light mode" : "Dark mode"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleLogout();
+                      setShowWorkspaceMenu(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                    style={{ color: "var(--study-text)" }}
+                  >
+                    Log out
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2 md:flex">
+          <div className="mt-4 hidden grid-cols-2 gap-2 md:flex">
             <button
               type="button"
               onClick={handleNewChat}
@@ -1886,41 +1960,15 @@ export default function DashboardPage() {
         </aside>
 
         <section className="flex flex-1 flex-col overflow-hidden px-4 py-4 sm:px-6 sm:py-5">
-          <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <header className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-semibold sm:text-2xl">
-                Welcome back{user?.displayName ? `, ${user.displayName}` : ""}.
-              </h1>
-              <p className="mt-1 text-sm" style={{ color: "var(--study-text-soft)" }}>
-                {user?.email}
+              <p
+                className="text-xs font-semibold uppercase tracking-[0.22em]"
+                style={{ color: "var(--study-text-soft)" }}
+              >
+                Study mode
               </p>
-            </div>
-
-            <div className="flex w-full items-center gap-2 sm:w-auto">
-              <button
-                type="button"
-                onClick={() => router.push("/test")}
-                className="flex-1 rounded-full px-4 py-2.5 text-sm font-semibold sm:flex-none"
-                style={{
-                  border: "1px solid var(--study-border)",
-                  background: "var(--study-surface-soft)",
-                  color: "var(--study-text)",
-                }}
-              >
-                Go to exam
-              </button>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="flex-1 rounded-full px-4 py-2.5 text-sm font-semibold sm:flex-none"
-                style={{
-                  border: "1px solid var(--study-border)",
-                  background: "var(--study-surface-soft)",
-                  color: "var(--study-text)",
-                }}
-              >
-                Log out
-              </button>
+              <h1 className="mt-2 text-lg font-semibold sm:text-xl">Guided tutor chat</h1>
             </div>
           </header>
 
@@ -1931,7 +1979,7 @@ export default function DashboardPage() {
                 className="study-surface rounded-[1.8rem] px-5 py-6 text-sm leading-7"
                 style={{ color: "var(--study-text-muted)" }}
               >
-                Ask to understand a topic, revise faster, or practice for exams. You can say things like &quot;teach me this like a lecturer&quot;, &quot;give me revision points&quot;, &quot;quiz me&quot;, or attach your notes and let Examora guide the conversation like a patient tutor.
+                Ask Examora to teach, revise, or quiz you.
               </div>
             ) : (
               conversation.map((turn) =>
@@ -2175,26 +2223,6 @@ export default function DashboardPage() {
                       ) : null}
                     </div>
 
-                    {turn.response.questions.length === 0 && !isGenerating ? (
-                      <div className="mt-4 flex flex-wrap gap-2">
-                        {["Give me an example", "Explain simpler", "Quiz me on this", "Revision points"].map((chip) => (
-                          <button
-                            key={chip}
-                            type="button"
-                            onClick={() => { setPrompt(chip); }}
-                            className="rounded-full px-3 py-1.5 text-xs font-medium transition"
-                            style={{
-                              border: "1px solid var(--study-border)",
-                              background: "var(--study-surface-soft)",
-                              color: "var(--study-text-soft)",
-                            }}
-                          >
-                            {chip}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-
                     {turn.response.questions.length > 0 ? (
                       <div
                         className="mt-5 rounded-[1.4rem] border p-4"
@@ -2218,7 +2246,7 @@ export default function DashboardPage() {
                           </div>
                           <button
                             type="button"
-                            onClick={handleStartTest}
+                            onClick={() => handleStartTest(turn.response)}
                             className="study-button rounded-full px-5 py-3 text-sm font-semibold text-white"
                           >
                             Start test
@@ -2295,7 +2323,7 @@ export default function DashboardPage() {
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 onKeyDown={handleComposerKeyDown}
-                placeholder="Ask to understand, revise, or practice. Example: Explain photosynthesis like a lecturer, then give me one practice question."
+                placeholder="Ask Examora..."
                 className="min-h-[3.5rem] max-h-36 w-full resize-none overflow-y-auto bg-transparent text-sm leading-6 outline-none placeholder:text-[var(--study-text-soft)]"
                 style={{ color: "var(--study-text)" }}
               />

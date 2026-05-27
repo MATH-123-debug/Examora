@@ -6,20 +6,23 @@ import {
 } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
-export async function prepareAuthPersistence() {
+export type AuthPersistenceMode = "local" | "session" | "memory";
+
+export async function prepareAuthPersistence(): Promise<AuthPersistenceMode> {
   try {
     await setPersistence(auth, browserLocalPersistence);
-    return;
+    return "local";
   } catch {
     // Fall back when local storage is restricted on a device/browser.
   }
 
   try {
     await setPersistence(auth, browserSessionPersistence);
-    return;
+    return "session";
   } catch {
     // Final fallback for very restrictive browsers.
   }
 
   await setPersistence(auth, inMemoryPersistence);
+  return "memory";
 }

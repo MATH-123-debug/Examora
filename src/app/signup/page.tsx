@@ -18,6 +18,8 @@ import { getAuthErrorMessage } from "@/lib/auth-errors";
 import { prepareAuthPersistence } from "@/lib/auth-persistence";
 import { auth, db } from "@/lib/firebase";
 
+const GOOGLE_REDIRECT_KEY = "examora-google-redirect";
+
 function shouldUseGoogleRedirect() {
   if (typeof window === "undefined") {
     return false;
@@ -51,16 +53,26 @@ export default function SignupPage() {
   useEffect(() => {
     async function handleRedirectResult() {
       try {
+        const hadPendingRedirect =
+          window.sessionStorage.getItem(GOOGLE_REDIRECT_KEY) === "pending";
         const result = await getRedirectResult(auth);
 
         if (!result?.user) {
+          window.sessionStorage.removeItem(GOOGLE_REDIRECT_KEY);
+          if (hadPendingRedirect) {
+            setErrorMessage(
+              "Google sign-in did not finish on this mobile browser. Open the app in Chrome, Safari, or another full browser and try again.",
+            );
+          }
           setIsGoogleLoading(false);
           return;
         }
 
+        window.sessionStorage.removeItem(GOOGLE_REDIRECT_KEY);
         await ensureGoogleUserProfile(result);
-        router.push("/dashboard");
+        router.replace("/dashboard");
       } catch (error) {
+        window.sessionStorage.removeItem(GOOGLE_REDIRECT_KEY);
         const message = getAuthErrorMessage(
           error,
           "Unable to sign in with Google.",
@@ -93,11 +105,19 @@ export default function SignupPage() {
     setSuccessMessage("");
     setIsGoogleLoading(true);
     const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
 
     try {
-      await prepareAuthPersistence();
+      const persistenceMode = await prepareAuthPersistence();
 
       if (shouldUseGoogleRedirect()) {
+        if (persistenceMode === "memory") {
+          throw new Error(
+            "Google sign-in needs normal browser storage on this mobile browser. Open the site in Chrome, Safari, or another full browser and try again.",
+          );
+        }
+
+        window.sessionStorage.setItem(GOOGLE_REDIRECT_KEY, "pending");
         await signInWithRedirect(auth, provider);
         return;
       }
@@ -126,6 +146,7 @@ export default function SignupPage() {
         error,
         "Unable to sign in with Google.",
       );
+      window.sessionStorage.removeItem(GOOGLE_REDIRECT_KEY);
       setErrorMessage(message);
       setIsGoogleLoading(false);
     }
