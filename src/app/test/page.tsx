@@ -1045,65 +1045,6 @@ ${content}`,
               </p>
               <h1 className="mt-2 text-lg font-semibold sm:text-xl">Build your test</h1>
             </div>
-
-            <div className="relative hidden sm:block">
-              <button
-                type="button"
-                onClick={() => setShowPageMenu((current) => !current)}
-                aria-label="Open exam menu"
-                className="flex h-10 w-10 items-center justify-center rounded-full"
-                style={{
-                  border: "1px solid var(--study-border)",
-                  background: "var(--study-surface-soft)",
-                  color: "var(--study-text)",
-                }}
-              >
-                <Menu size={19} />
-              </button>
-
-              {showPageMenu ? (
-                <div
-                  className="study-surface absolute right-0 top-12 z-20 min-w-60 rounded-2xl border p-1 shadow-lg"
-                  style={{ borderColor: "var(--study-border)" }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resetExam();
-                      router.push("/dashboard");
-                      setShowPageMenu(false);
-                    }}
-                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
-                    style={{ color: "var(--study-text)" }}
-                  >
-                    Dashboard
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      toggleTheme();
-                      setShowPageMenu(false);
-                    }}
-                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
-                    style={{ color: "var(--study-text)" }}
-                  >
-                    {theme === "dark" ? "Light mode" : "Dark mode"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleLogout();
-                      setShowPageMenu(false);
-                    }}
-                    className="block w-full rounded-xl px-3 py-2 text-left text-sm"
-                    style={{ color: "var(--study-text)" }}
-                  >
-                    Log out
-                  </button>
-
-                </div>
-              ) : null}
-            </div>
           </header>
 
           <div className="grid flex-1 gap-5 py-5 sm:py-6 lg:grid-cols-[0.75fr_1.25fr] lg:items-center">
@@ -1123,7 +1064,7 @@ ${content}`,
               initial={{ opacity: 0, y: 18 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.24 }}
-              className="premium-exam-card rounded-[2rem] p-4 sm:p-5"
+              className="premium-exam-card w-full min-w-0 rounded-[2rem] p-4 sm:p-5"
             >
               <div className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible">
                 {sourceOptions.map((option) => {
@@ -1277,6 +1218,7 @@ ${content}`,
           type="button"
           onClick={() => setShowPageMenu((current) => !current)}
           className="floating-menu-button exam-floating-menu-button md:hidden"
+          style={{ top: "1rem", right: "1rem", bottom: "auto" }}
           aria-label="Open exam menu"
         >
           <Menu size={22} />
@@ -1353,75 +1295,6 @@ ${content}`,
               {examStage === "review" ? "Review mode" : "Exam room"}
             </p>
             <h1 className="mt-2 text-lg font-semibold sm:text-xl">{session.title}</h1>
-          </div>
-
-          <div className="relative hidden sm:block">
-            <button
-              type="button"
-              onClick={() => setShowPageMenu((current) => !current)}
-              aria-label="Open exam menu"
-              className="flex h-10 w-10 items-center justify-center rounded-full"
-              style={{
-                border: "1px solid var(--study-border)",
-                background: "var(--study-surface-soft)",
-                color: "var(--study-text)",
-              }}
-            >
-              <Menu size={19} />
-            </button>
-
-            {showPageMenu ? (
-              <div
-                className="study-surface absolute right-0 top-12 z-20 min-w-52 rounded-2xl border p-1 shadow-lg"
-                style={{ borderColor: "var(--study-border)" }}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetExam();
-                    setShowPageMenu(false);
-                  }}
-                  className="block w-full rounded-xl px-3 py-2 text-left text-sm"
-                  style={{ color: "var(--study-text)" }}
-                >
-                  New test
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    resetExam();
-                    router.push("/dashboard");
-                    setShowPageMenu(false);
-                  }}
-                  className="block w-full rounded-xl px-3 py-2 text-left text-sm"
-                  style={{ color: "var(--study-text)" }}
-                >
-                  Dashboard
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    toggleTheme();
-                    setShowPageMenu(false);
-                  }}
-                  className="block w-full rounded-xl px-3 py-2 text-left text-sm"
-                  style={{ color: "var(--study-text)" }}
-                >
-                  {theme === "dark" ? "Light mode" : "Dark mode"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleLogout();
-                    setShowPageMenu(false);
-                  }}
-                  className="block w-full rounded-xl px-3 py-2 text-left text-sm"
-                  style={{ color: "var(--study-text)" }}
-                >
-                  Log out
-                </button>
-              </div>
-            ) : null}
           </div>
         </header>
 
@@ -1734,6 +1607,7 @@ ${content}`,
         type="button"
         onClick={() => setShowPageMenu((current) => !current)}
         className="floating-menu-button exam-floating-menu-button md:hidden"
+        style={{ top: "1rem", right: "1rem", bottom: "auto" }}
         aria-label="Open exam menu"
       >
         <Menu size={22} />
