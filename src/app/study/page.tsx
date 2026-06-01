@@ -2465,6 +2465,7 @@ export default function DashboardPage() {
         type="button"
         onClick={() => setShowWorkspaceMenu((current) => !current)}
         className="floating-menu-button md:hidden"
+        style={{ top: "1rem", right: "1rem", bottom: "auto" }}
         aria-label="Open app menu"
       >
         <Menu size={22} />

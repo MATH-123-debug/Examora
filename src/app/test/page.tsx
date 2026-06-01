@@ -1440,7 +1440,7 @@ ${content}`,
               Your test is complete. Open review mode if you want to check each answer one by one.
             </p>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <div className="mt-5 grid gap-3 grid-cols-2 sm:grid-cols-3 xl:grid-cols-5">
               <div className="rounded-[1.2rem] border px-4 py-3" style={{ borderColor: "var(--study-border)" }}>
                 <p className="text-xs uppercase tracking-[0.14em]" style={{ color: "var(--study-text-soft)" }}>
                   Overall
@@ -1635,7 +1635,7 @@ ${content}`,
               ) : null}
             </div>
 
-            <div className="mt-5 flex items-center justify-between gap-4">
+            <div className="mt-5 flex items-center justify-between gap-3">
               <button
                 type="button"
                 onClick={() => setActiveQuestionIndex((current) => Math.max(0, current - 1))}
@@ -1646,7 +1646,7 @@ ${content}`,
                   color: "var(--study-text)",
                 }}
               >
-                Previous
+                Prev
               </button>
 
               {examStage === "review" ? (
@@ -1684,7 +1684,7 @@ ${content}`,
               )}
             </div>
 
-            <div className="mt-4 grid grid-cols-6 gap-2 sm:grid-cols-8">
+            <div className="mt-4 grid grid-cols-8 gap-1.5 sm:grid-cols-10">
               {session.questions.map((question, index) => {
                 const isActive = index === activeQuestionIndex;
                 const isAnswered = Boolean(answers[question.id]?.trim());
@@ -1706,7 +1706,7 @@ ${content}`,
                     key={question.id}
                     type="button"
                     onClick={() => setActiveQuestionIndex(index)}
-                    className="h-10 rounded-xl text-xs font-semibold"
+                    className="h-9 rounded-xl text-xs font-semibold"
                     style={{
                       background: isActive
                         ? "var(--study-button)"

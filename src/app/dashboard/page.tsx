@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
+import { Menu } from "lucide-react";
 import { useAuth } from "@/components/auth-provider";
 import { useStudyTheme } from "@/components/study-theme-provider";
 import { auth } from "@/lib/firebase";
@@ -55,7 +56,7 @@ export default function DashboardHomePage() {
   return (
     <main className={`study-shell ${theme}`}>
       <section className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
-        <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex items-center justify-between gap-3 sm:flex-row">
           <div>
             <p
               className="text-xs font-semibold uppercase tracking-[0.28em]"
@@ -72,14 +73,14 @@ export default function DashboardHomePage() {
             <button
               type="button"
               onClick={() => setShowMenu((current) => !current)}
-              className="rounded-full px-4 py-2.5 text-sm font-semibold"
+              className="flex h-10 w-10 items-center justify-center rounded-full"
               style={{
                 border: "1px solid var(--study-border)",
                 background: "var(--study-surface-soft)",
                 color: "var(--study-text)",
               }}
             >
-              Menu
+              <Menu size={19} />
             </button>
             {showMenu ? (
               <div
