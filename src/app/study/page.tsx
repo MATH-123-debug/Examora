@@ -9,6 +9,22 @@ import {
   type KeyboardEvent,
 } from "react";
 import { signOut } from "firebase/auth";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  Bell,
+  FilePlus2,
+  HelpCircle,
+  Info,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Moon,
+  Plus,
+  Send,
+  Sparkles,
+  Sun,
+  ClipboardList,
+} from "lucide-react";
 import {
   addDoc,
   collection,
@@ -851,6 +867,21 @@ function deleteLocalStudySession(sessionId: string) {
   );
 }
 
+async function readJsonResponse(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  await response.text();
+  throw new Error(
+    response.ok
+      ? "The server returned an unexpected response. Please try again."
+      : `Server error ${response.status}. The upload API did not return JSON. Check the Vercel function logs for /api/extract-pdf.`,
+  );
+}
+
 function findLocalStudySession(sessionId: string) {
   return readLocalStudySessions().find((session) => session.id === sessionId);
 }
@@ -936,6 +967,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
   const { user, isLoading } = useAuth();
   const { theme, toggleTheme } = useStudyTheme();
 
@@ -1385,7 +1417,7 @@ export default function DashboardPage() {
         }),
       });
 
-      const data = await response.json();
+      const data = await readJsonResponse(response);
 
       if (!response.ok) {
         const providerErrors = Array.isArray(data?.providerErrors)
@@ -1583,7 +1615,7 @@ export default function DashboardPage() {
           method: "POST",
           body: formData,
         });
-        const data = await response.json();
+        const data = await readJsonResponse(response);
 
         if (!response.ok) {
           throw new Error(
@@ -1634,10 +1666,63 @@ export default function DashboardPage() {
     }
   }
 
+  function resizeComposerInput(element: HTMLTextAreaElement) {
+    element.style.height = "0px";
+    element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
+  }
+
   function handleOpenFilePicker() {
     setShowInputMenu(false);
     fileInputRef.current?.click();
   }
+
+  const workspaceMenuItems = [
+    {
+      label: "New chat",
+      icon: Plus,
+      action: () => handleNewChat(),
+    },
+    {
+      label: "Dashboard",
+      icon: LayoutDashboard,
+      action: () => router.push("/dashboard"),
+    },
+    {
+      label: "Exam mode",
+      icon: ClipboardList,
+      action: () => router.push("/test"),
+    },
+    {
+      label: "Recent sessions",
+      icon: Sparkles,
+      action: () => setShowRecentSessions((current) => !current),
+    },
+    {
+      label: "Help and support",
+      icon: HelpCircle,
+      action: () => setFormError("Help and support will be added in the next version."),
+    },
+    {
+      label: "Notifications",
+      icon: Bell,
+      action: () => setFormError("Notifications will be added in the next version."),
+    },
+    {
+      label: "About App",
+      icon: Info,
+      action: () => setFormError("Examora helps students understand, revise, and practice from notes, topics, and files."),
+    },
+    {
+      label: theme === "dark" ? "Light mode" : "Dark mode",
+      icon: theme === "dark" ? Sun : Moon,
+      action: () => toggleTheme(),
+    },
+    {
+      label: "Logout",
+      icon: LogOut,
+      action: () => void handleLogout(),
+    },
+  ];
 
   function handleStartTest(response?: StudyResponse) {
     if (response?.questions.length) {
@@ -1682,7 +1767,7 @@ export default function DashboardPage() {
 
       <div className="mx-auto flex h-screen w-full max-w-7xl flex-col md:flex-row overflow-hidden">
         <aside
-          className="shrink-0 border-b px-4 py-3 md:sticky md:top-0 md:h-screen md:w-72 md:overflow-y-auto md:border-b-0 md:border-r md:px-5 md:py-5"
+          className="hidden shrink-0 border-b px-4 py-3 md:sticky md:top-0 md:block md:h-screen md:w-72 md:overflow-y-auto md:border-b-0 md:border-r md:px-5 md:py-5"
           style={{ borderColor: "var(--study-border)" }}
         >
           <div className="flex items-center justify-between gap-3">
@@ -1806,7 +1891,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="mt-4 hidden grid-cols-2 gap-2 md:flex">
+          <div className="mt-4 flex grid-cols-2 gap-2">
             <button
               type="button"
               onClick={handleNewChat}
@@ -1975,11 +2060,13 @@ export default function DashboardPage() {
           <div className="mt-5 flex-1 space-y-5 overflow-y-auto pb-6" id="chat-scroll" style={{ WebkitOverflowScrolling: "touch" }}>
             <div ref={bottomRef} />
             {conversation.length === 0 ? (
-              <div
-                className="study-surface rounded-[1.8rem] px-5 py-6 text-sm leading-7"
-                style={{ color: "var(--study-text-muted)" }}
-              >
-                Ask Examora to teach, revise, or quiz you.
+              <div className="flex min-h-[45vh] items-center justify-center">
+                <div
+                  className="study-surface rounded-full px-4 py-3 text-center text-xs font-medium shadow-sm sm:px-5 sm:text-sm"
+                  style={{ color: "var(--study-text-muted)" }}
+                >
+                  Ask Examora to teach and revise.
+                </div>
               </div>
             ) : (
               conversation.map((turn) =>
@@ -2269,28 +2356,34 @@ export default function DashboardPage() {
             <div ref={bottomRef} />
           </div>
 
-          <div className="mt-4 pb-2">
-            <div
-              className="study-surface rounded-[1.1rem] px-3 py-3 sm:rounded-[1.3rem]"
-              style={{ position: "sticky", bottom: 16, paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}
-            >
+          <div className="sticky bottom-0 z-20 mt-3 pb-3 pt-2" style={{ paddingBottom: "max(12px, env(safe-area-inset-bottom))" }}>
+            <AnimatePresence>
               {showInputMenu ? (
-                <div className="mb-3">
-                  <div
-                    className="study-surface inline-flex min-w-44 flex-col rounded-xl border p-1 shadow-lg"
-                    style={{ borderColor: "var(--study-border)" }}
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                  transition={{ duration: 0.16 }}
+                  className="mb-2"
+                >
+                  <button
+                    type="button"
+                    onClick={handleOpenFilePicker}
+                    className="study-floating-card inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold shadow-xl transition hover:-translate-y-0.5"
+                    style={{ color: "var(--study-text)" }}
                   >
-                    <button
-                      type="button"
-                      onClick={handleOpenFilePicker}
-                      className="rounded-lg px-3 py-2 text-left text-sm transition hover:bg-white/5"
-                      style={{ color: "var(--study-text)" }}
-                    >
-                      Attach file
-                    </button>
-                  </div>
-                </div>
+                    <FilePlus2 size={17} />
+                    Attach PDF or DOCX
+                  </button>
+                </motion.div>
               ) : null}
+            </AnimatePresence>
+
+            <motion.div
+              layout
+              className="ai-composer mx-auto max-w-4xl rounded-[1.75rem] px-3 py-3 shadow-2xl sm:rounded-[2rem]"
+              whileFocus={{ scale: 1.01 }}
+            >
 
               {attachments.length > 0 ? (
                 <div className="mb-3 flex flex-wrap gap-2">
@@ -2319,55 +2412,145 @@ export default function DashboardPage() {
                 </div>
               ) : null}
 
-              <textarea
+              <div className="flex items-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowInputMenu((current) => !current)}
+                  className="composer-icon-button mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition hover:scale-105 active:scale-95"
+                  aria-label="Attach file"
+                >
+                  <Plus size={20} />
+                </button>
+
+                <textarea
+                ref={composerInputRef}
                 value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
+                onChange={(event) => {
+                  setPrompt(event.target.value);
+                  resizeComposerInput(event.target);
+                }}
                 onKeyDown={handleComposerKeyDown}
-                placeholder="Ask Examora..."
-                className="min-h-[3.5rem] max-h-36 w-full resize-none overflow-y-auto bg-transparent text-sm leading-6 outline-none placeholder:text-[var(--study-text-soft)]"
+                placeholder="ask anything..."
+                rows={1}
+                className="max-h-40 min-h-10 flex-1 resize-none overflow-y-auto bg-transparent px-1 py-2 text-sm leading-6 outline-none placeholder:text-[var(--study-text-soft)] sm:text-[15px]"
                 style={{ color: "var(--study-text)" }}
               />
+
+                <button
+                  type="button"
+                  onClick={() => void handleGenerate()}
+                  disabled={isGenerating || isExtractingFile}
+                  className="composer-send-button mb-0.5 flex h-10 min-w-10 shrink-0 items-center justify-center rounded-full px-3 text-sm font-semibold text-white transition hover:scale-105 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label="Send message"
+                >
+                  {isExtractingFile || isGenerating ? (
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                  ) : (
+                    <Send size={17} />
+                  )}
+                </button>
+              </div>
 
               {formError ? (
                 <p className="mt-3 whitespace-pre-wrap rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                   {formError}
                 </p>
               ) : null}
-
-              <div
-                className="mt-3 flex items-center justify-between gap-3 border-t pt-3"
-                style={{ borderColor: "var(--study-border)" }}
-              >
-                <button
-                  type="button"
-                  onClick={() => setShowInputMenu((current) => !current)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full text-base"
-                  style={{
-                    border: "1px solid var(--study-border)",
-                    background: "var(--study-surface-soft)",
-                    color: "var(--study-text)",
-                  }}
-                >
-                  +
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => void handleGenerate()}
-                  disabled={isGenerating || isExtractingFile}
-                  className="study-button rounded-full px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
-                >
-                  {isExtractingFile
-                    ? "Preparing files..."
-                    : isGenerating
-                      ? "Generating..."
-                      : "Send"}
-                </button>
-              </div>
-            </div>
+            </motion.div>
           </div>
         </section>
       </div>
+
+      <button
+        type="button"
+        onClick={() => setShowWorkspaceMenu((current) => !current)}
+        className="floating-menu-button md:hidden"
+        aria-label="Open app menu"
+      >
+        <Menu size={22} />
+      </button>
+
+      <AnimatePresence>
+        {showWorkspaceMenu ? (
+          <>
+            <motion.button
+              type="button"
+              aria-label="Close menu"
+              className="fixed inset-0 z-30 bg-black/35 backdrop-blur-[2px] md:hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowWorkspaceMenu(false)}
+            />
+            <motion.div
+              className="mobile-action-sheet md:hidden"
+              initial={{ opacity: 0, y: 32, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 32, scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 360, damping: 30 }}
+            >
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" />
+              {user ? (
+                <div className="mb-3 rounded-2xl px-3 py-2 text-xs" style={{ background: "var(--study-surface-soft)" }}>
+                  <p className="font-semibold">{user.displayName || "Student"}</p>
+                  <p className="mt-1 truncate" style={{ color: "var(--study-text-soft)" }}>
+                    {user.email}
+                  </p>
+                </div>
+              ) : null}
+              <div className="grid gap-1">
+                {workspaceMenuItems.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        item.action();
+                        if (item.label !== "Recent sessions") {
+                          setShowWorkspaceMenu(false);
+                        }
+                      }}
+                      className="flex items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-medium transition hover:bg-white/8 active:scale-[0.99]"
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: "var(--study-surface-soft)" }}>
+                        <Icon size={17} />
+                      </span>
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {showRecentSessions ? (
+                <div className="mt-3 max-h-52 overflow-y-auto rounded-2xl p-2" style={{ background: "var(--study-surface-soft)" }}>
+                  {recentSessions.length === 0 ? (
+                    <p className="px-3 py-2 text-sm" style={{ color: "var(--study-text-muted)" }}>
+                      No saved sessions yet.
+                    </p>
+                  ) : (
+                    recentSessions.map((session) => (
+                      <button
+                        key={session.id}
+                        type="button"
+                        onClick={() => {
+                          void handleOpenSession(session.id);
+                          setShowWorkspaceMenu(false);
+                        }}
+                        className="block w-full rounded-xl px-3 py-2 text-left text-sm"
+                      >
+                        <span className="block truncate font-semibold">{session.title}</span>
+                        <span className="mt-1 block text-xs" style={{ color: "var(--study-text-soft)" }}>
+                          {session.action} - {session.createdAtLabel}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </motion.div>
+          </>
+        ) : null}
+      </AnimatePresence>
     </main>
   );
 }

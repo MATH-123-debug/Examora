@@ -9,6 +9,20 @@ import {
   type ChangeEvent,
 } from "react";
 import { signOut } from "firebase/auth";
+import { AnimatePresence, motion } from "framer-motion";
+import {
+  BookOpenText,
+  FilePlus2,
+  Home,
+  Info,
+  LogOut,
+  Menu,
+  Moon,
+  PenLine,
+  Sparkles,
+  Sun,
+  Target,
+} from "lucide-react";
 import {
   addDoc,
   collection,
@@ -82,21 +96,25 @@ const sourceOptions: Array<{
   id: SourceType;
   title: string;
   description: string;
+  icon: typeof Target;
 }> = [
   {
     id: "topic",
     title: "Topic",
     description: "Generate an exam from one topic or question area.",
+    icon: Target,
   },
   {
     id: "outline",
     title: "Course outline",
     description: "Use a list of topics from a whole course.",
+    icon: BookOpenText,
   },
   {
     id: "file",
     title: "File",
     description: "Upload PDF or DOCX notes and test from them.",
+    icon: FilePlus2,
   },
 ];
 
@@ -398,6 +416,53 @@ function parsePositiveInteger(value: string, max: number) {
   return Math.min(max, Math.round(parsed));
 }
 
+function isMathExamSource(value: string) {
+  const normalized = value.toLowerCase();
+
+  return (
+    normalized.includes("math") ||
+    normalized.includes("mathematics") ||
+    normalized.includes("calculus") ||
+    normalized.includes("algebra") ||
+    normalized.includes("trigonometry") ||
+    normalized.includes("geometry") ||
+    normalized.includes("differential") ||
+    normalized.includes("equation") ||
+    normalized.includes("derivative") ||
+    normalized.includes("differentiate") ||
+    normalized.includes("integral") ||
+    normalized.includes("integrate") ||
+    normalized.includes("matrix") ||
+    normalized.includes("matrices") ||
+    normalized.includes("vector") ||
+    normalized.includes("probability") ||
+    normalized.includes("statistics") ||
+    normalized.includes("limit") ||
+    normalized.includes("series") ||
+    normalized.includes("function") ||
+    normalized.includes("logarithm") ||
+    normalized.includes("indices") ||
+    normalized.includes("factorization") ||
+    normalized.includes("quadratic") ||
+    /[=^+\-*/√∫∂]/.test(value)
+  );
+}
+
+async function readJsonResponse(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  await response.text();
+  throw new Error(
+    response.ok
+      ? "The server returned an unexpected response. Please try again."
+      : `Server error ${response.status}. The API did not return JSON. Check the Vercel function logs for this route.`,
+  );
+}
+
 export default function TestPage() {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -417,9 +482,10 @@ export default function TestPage() {
   const [error, setError] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
-  const [recentResults, setRecentResults] = useState<ExamResultItem[]>([]);
+  const [, setRecentResults] = useState<ExamResultItem[]>([]);
   const [hasSavedResult, setHasSavedResult] = useState(false);
   const [showPageMenu, setShowPageMenu] = useState(false);
+  const [showAboutApp, setShowAboutApp] = useState(false);
   const [timeRemainingSeconds, setTimeRemainingSeconds] = useState(0);
   const [examStage, setExamStage] = useState<ExamStage>("taking");
 
@@ -627,6 +693,7 @@ export default function TestPage() {
   }
 
   async function handleLogout() {
+    resetExam();
     await signOut(auth);
     router.replace("/login");
   }
@@ -634,6 +701,7 @@ export default function TestPage() {
   function submitExam() {
     setHasSubmitted(true);
     setExamStage("summary");
+    window.sessionStorage.removeItem("examora-test-session");
   }
 
   function handleRemoveAttachment() {
@@ -749,7 +817,7 @@ export default function TestPage() {
         method: "POST",
         body: formData,
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
 
       if (!response.ok || typeof data?.text !== "string") {
         throw new Error(
@@ -789,6 +857,14 @@ export default function TestPage() {
         : sourceType === "outline"
           ? `Use every topic in this course outline. Spread the questions across the outline instead of focusing on only one topic.\n\nCourse outline:\n${trimmedSourceText}`
           : trimmedSourceText;
+    const mathExam = isMathExamSource(content);
+    const mathExamInstruction = mathExam
+      ? `Mathematics exam instruction:
+This is a mathematics/calculation topic. Generate real exam-standard math questions, not shallow definition questions.
+For CBT: every question should require calculation, simplification, solving, substitution, graph/logic interpretation, or choosing the correct mathematical result. Include formulas, expressions, equations, or values in the prompt. Options must be plausible numeric/algebraic answers, not generic English statements.
+For writing/theory: ask worked-solution questions that require steps. The model answer must show the full calculation method, important formulas, substitution, working, and final answer. The marking guide must explain where marks are earned.
+Avoid physics-style or general English questions unless the uploaded material is clearly physics. Stay on the mathematical topic requested.`
+      : "";
 
     if (!content.trim()) {
       setError(
@@ -823,14 +899,16 @@ export default function TestPage() {
           inputType: sourceType === "file" ? "pdf" : sourceType,
           questionCount: parsedQuestionCount,
           questionType: examMode,
+          mathMode: mathExam,
           content: `${examMode === "writing" ? "Generate writing/theory exam questions. Do not create options. Provide a model answer in correctAnswer and marking guide in explanation." : "Generate CBT multiple-choice exam questions with four options."}
 ${sourceType === "outline" ? "Use all topics listed in the outline. Distribute the questions across the outline and do not stay on just one topic." : ""}
+${mathExamInstruction}
 Question count requested: ${parsedQuestionCount}
 
 ${content}`,
         }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
 
       if (!response.ok) {
         const providerErrors = Array.isArray(data?.providerErrors)
@@ -896,6 +974,45 @@ ${content}`,
     }
   }
 
+  const pageMenuItems = [
+    {
+      label: "New exam",
+      icon: Sparkles,
+      action: () => resetExam(),
+    },
+    {
+      label: "Dashboard",
+      icon: Home,
+      action: () => {
+        resetExam();
+        router.push("/dashboard");
+      },
+    },
+    {
+      label: "Study chat",
+      icon: PenLine,
+      action: () => {
+        resetExam();
+        router.push("/study");
+      },
+    },
+    {
+      label: "About App",
+      icon: Info,
+      action: () => setShowAboutApp((current) => !current),
+    },
+    {
+      label: theme === "dark" ? "Light mode" : "Dark mode",
+      icon: theme === "dark" ? Sun : Moon,
+      action: () => toggleTheme(),
+    },
+    {
+      label: "Logout",
+      icon: LogOut,
+      action: () => void handleLogout(),
+    },
+  ];
+
   if (isLoading) {
     return (
       <main className={`study-shell ${theme} flex items-center justify-center px-6 py-10`}>
@@ -917,7 +1034,7 @@ ${content}`,
           className="hidden"
         />
 
-        <section className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-4 sm:px-6 sm:py-5 lg:px-8">
+        <section className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-4 pb-28 sm:px-6 sm:py-5 lg:px-8">
           <header className="flex items-center justify-between gap-3">
             <div>
               <p
@@ -929,18 +1046,19 @@ ${content}`,
               <h1 className="mt-2 text-lg font-semibold sm:text-xl">Build your test</h1>
             </div>
 
-            <div className="relative">
+            <div className="relative hidden sm:block">
               <button
                 type="button"
                 onClick={() => setShowPageMenu((current) => !current)}
-                className="rounded-full px-4 py-2.5 text-sm font-semibold"
+                aria-label="Open exam menu"
+                className="flex h-10 w-10 items-center justify-center rounded-full"
                 style={{
                   border: "1px solid var(--study-border)",
                   background: "var(--study-surface-soft)",
                   color: "var(--study-text)",
                 }}
               >
-                Menu
+                <Menu size={19} />
               </button>
 
               {showPageMenu ? (
@@ -951,6 +1069,7 @@ ${content}`,
                   <button
                     type="button"
                     onClick={() => {
+                      resetExam();
                       router.push("/dashboard");
                       setShowPageMenu(false);
                     }}
@@ -982,112 +1101,78 @@ ${content}`,
                     Log out
                   </button>
 
-                  <div className="mt-1 border-t px-3 py-2" style={{ borderColor: "var(--study-border)" }}>
-                    <p
-                      className="text-xs font-semibold uppercase tracking-[0.16em]"
-                      style={{ color: "var(--study-text-soft)" }}
-                    >
-                      Recent results
-                    </p>
-                  </div>
-
-                  <div className="max-h-64 overflow-y-auto px-1 pb-1">
-                    {recentResults.length === 0 ? (
-                      <p className="px-3 py-2 text-sm" style={{ color: "var(--study-text-muted)" }}>
-                        No saved exam results yet.
-                      </p>
-                    ) : (
-                      recentResults.map((result) => (
-                        <div
-                          key={result.id}
-                          className="rounded-xl px-3 py-2"
-                          style={{ border: "1px solid var(--study-border)" }}
-                        >
-                          <p className="truncate text-sm font-semibold">{result.title}</p>
-                          <p className="mt-1 text-xs" style={{ color: "var(--study-text-soft)" }}>
-                            {result.scoreLabel} - {result.createdAtLabel}
-                          </p>
-                        </div>
-                      ))
-                    )}
-                  </div>
                 </div>
               ) : null}
             </div>
           </header>
 
-          <div className="grid flex-1 gap-5 py-5 sm:py-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+          <div className="grid flex-1 gap-5 py-5 sm:py-6 lg:grid-cols-[0.75fr_1.25fr] lg:items-center">
             <div>
               <h1 className="max-w-xl text-3xl font-semibold tracking-[-0.04em] sm:text-4xl lg:text-5xl">
-                Build a focused test.
+                Generate a focused exam.
               </h1>
               <p
                 className="mt-4 max-w-xl text-sm leading-7"
                 style={{ color: "var(--study-text-muted)" }}
               >
-                Pick a source, set your question count and time, then start.
+                Pick what Examora should test you from, then choose the exam type, question count, and time.
               </p>
             </div>
 
-            <div className="study-surface rounded-[2rem] p-4 sm:p-6">
-              <div className="grid gap-3 sm:grid-cols-3">
-                {sourceOptions.map((option) => (
+            <motion.div
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.24 }}
+              className="premium-exam-card rounded-[2rem] p-4 sm:p-5"
+            >
+              <div className="flex gap-2 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible">
+                {sourceOptions.map((option) => {
+                  const Icon = option.icon;
+                  const active = sourceType === option.id;
+
+                  return (
                   <button
                     key={option.id}
                     type="button"
                     onClick={() => setSourceType(option.id)}
-                    className="rounded-[1.15rem] border p-3.5 text-left transition hover:-translate-y-0.5"
-                    style={{
-                      borderColor:
-                        sourceType === option.id
-                          ? "var(--study-button)"
-                          : "var(--study-border)",
-                      background:
-                        sourceType === option.id
-                          ? "var(--study-surface-soft)"
-                          : "transparent",
-                    }}
+                    className={`exam-source-pill ${active ? "active" : ""}`}
                   >
-                    <p className="font-semibold">{option.title}</p>
-                    <p className="mt-2 text-xs leading-5" style={{ color: "var(--study-text-muted)" }}>
-                      {option.description}
-                    </p>
+                    <Icon size={16} />
+                    <span>{option.title}</span>
                   </button>
-                ))}
+                  );
+                })}
               </div>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
                 {(["cbt", "writing"] as ExamMode[]).map((mode) => (
                   <button
                     key={mode}
                     type="button"
                     onClick={() => setExamMode(mode)}
-                    className="rounded-[1.3rem] border px-4 py-3 text-left text-sm font-semibold capitalize"
-                    style={{
-                      borderColor:
-                        examMode === mode
-                          ? "var(--study-button)"
-                          : "var(--study-border)",
-                      background:
-                        examMode === mode
-                          ? "var(--study-surface-soft)"
-                          : "transparent",
-                    }}
+                    className={`exam-mode-card ${examMode === mode ? "active" : ""}`}
                   >
                     {mode === "cbt" ? "CBT objective" : "Writing / theory"}
                   </button>
                 ))}
               </div>
 
-              <div className="mt-5">
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={sourceType}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.16 }}
+                  className="mt-4"
+                >
                 {sourceType === "file" ? (
                   <div className="space-y-3">
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="w-full rounded-[1.25rem] border border-dashed px-4 py-5 text-sm font-semibold"
+                      className="exam-upload-zone w-full px-4 py-5 text-sm font-semibold"
                       style={{
-                        borderColor: "var(--study-border)",
                         color: "var(--study-text)",
                       }}
                     >
@@ -1128,16 +1213,18 @@ ${content}`,
                         ? "Example: Demand and supply"
                         : "Paste your outline..."
                     }
-                    className="min-h-36 w-full resize-none rounded-[1.25rem] border bg-transparent px-4 py-4 text-sm leading-7 outline-none"
-                    style={{
-                      borderColor: "var(--study-border)",
-                      color: "var(--study-text)",
-                    }}
+                    className="exam-input min-h-28 w-full resize-none px-4 py-4 text-sm leading-7"
+                    style={{ color: "var(--study-text)" }}
                   />
                 )}
-              </div>
+                </motion.div>
+              </AnimatePresence>
 
-              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"
+              >
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="text-sm font-semibold">
                     Questions
@@ -1147,11 +1234,8 @@ ${content}`,
                       inputMode="numeric"
                       value={questionCountInput}
                       onChange={(event) => setQuestionCountInput(event.target.value)}
-                      className="mt-2 block w-full rounded-full border bg-transparent px-4 py-2 text-sm outline-none"
-                      style={{
-                        borderColor: "var(--study-border)",
-                        color: "var(--study-text)",
-                      }}
+                      className="exam-input mt-2 block w-full px-4 py-2.5 text-sm"
+                      style={{ color: "var(--study-text)" }}
                     />
                   </label>
 
@@ -1163,33 +1247,96 @@ ${content}`,
                       inputMode="numeric"
                       value={timeLimitInput}
                       onChange={(event) => setTimeLimitInput(event.target.value)}
-                      className="mt-2 block w-full rounded-full border bg-transparent px-4 py-2 text-sm outline-none"
-                      style={{
-                        borderColor: "var(--study-border)",
-                        color: "var(--study-text)",
-                      }}
+                      className="exam-input mt-2 block w-full px-4 py-2.5 text-sm"
+                      style={{ color: "var(--study-text)" }}
                     />
                   </label>
                 </div>
 
-                <button
+                <motion.button
                   type="button"
                   onClick={handleGenerateExam}
                   disabled={isGenerating || isExtracting}
-                  className="study-button rounded-full px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70"
+                  whileTap={{ scale: 0.98 }}
+                  className="exam-generate-button rounded-full px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-70 sm:min-w-40"
                 >
                   {isGenerating ? "Building exam..." : "Generate exam"}
-                </button>
-              </div>
+                </motion.button>
+              </motion.div>
 
               {error ? (
                 <p className="mt-4 whitespace-pre-wrap rounded-2xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
                   {error}
                 </p>
               ) : null}
-            </div>
+            </motion.div>
           </div>
         </section>
+
+        <button
+          type="button"
+          onClick={() => setShowPageMenu((current) => !current)}
+          className="floating-menu-button exam-floating-menu-button md:hidden"
+          aria-label="Open exam menu"
+        >
+          <Menu size={22} />
+        </button>
+
+        <AnimatePresence>
+          {showPageMenu ? (
+            <>
+              <motion.button
+                type="button"
+                aria-label="Close menu"
+                className="fixed inset-0 z-30 bg-black/35 backdrop-blur-[2px]"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowPageMenu(false)}
+              />
+              <motion.div
+                className="mobile-action-sheet"
+                initial={{ opacity: 0, y: 32, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 32, scale: 0.98 }}
+                transition={{ type: "spring", stiffness: 360, damping: 30 }}
+              >
+                <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" />
+                {pageMenuItems.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        item.action();
+                        if (item.label !== "About App") {
+                          setShowPageMenu(false);
+                        }
+                      }}
+                      className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-medium transition hover:bg-white/8 active:scale-[0.99]"
+                    >
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: "var(--study-surface-soft)" }}>
+                        <Icon size={17} />
+                      </span>
+                      {item.label}
+                    </button>
+                  );
+                })}
+                {showAboutApp ? (
+                  <div className="mt-3 rounded-2xl p-4 text-sm leading-6" style={{ background: "var(--study-surface-soft)", color: "var(--study-text-muted)" }}>
+                    <p className="font-semibold" style={{ color: "var(--study-text)" }}>
+                      About Examora
+                    </p>
+                    <p className="mt-2">
+                      Examora helps students turn topics, course outlines, PDFs, and DOCX notes into study explanations, CBT practice, writing exams, scoring, and review. Exam mode is built to feel like a focused exam room, not a normal form.
+                    </p>
+                  </div>
+                ) : null}
+              </motion.div>
+            </>
+          ) : null}
+        </AnimatePresence>
       </main>
     );
   }
@@ -1208,18 +1355,19 @@ ${content}`,
             <h1 className="mt-2 text-lg font-semibold sm:text-xl">{session.title}</h1>
           </div>
 
-          <div className="relative">
+          <div className="relative hidden sm:block">
             <button
               type="button"
               onClick={() => setShowPageMenu((current) => !current)}
-              className="rounded-full px-4 py-2.5 text-sm font-semibold"
+              aria-label="Open exam menu"
+              className="flex h-10 w-10 items-center justify-center rounded-full"
               style={{
                 border: "1px solid var(--study-border)",
                 background: "var(--study-surface-soft)",
                 color: "var(--study-text)",
               }}
             >
-              Menu
+              <Menu size={19} />
             </button>
 
             {showPageMenu ? (
@@ -1241,6 +1389,7 @@ ${content}`,
                 <button
                   type="button"
                   onClick={() => {
+                    resetExam();
                     router.push("/dashboard");
                     setShowPageMenu(false);
                   }}
@@ -1457,25 +1606,19 @@ ${content}`,
               {examStage === "review" ? (
                 <div className="mt-6 rounded-[1.5rem] border p-4 text-sm leading-7" style={{ borderColor: "var(--study-border)" }}>
                   {session.mode === "writing" && writingReview ? (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       <p className="font-semibold">Estimated mark: {writingReview.score} / 10</p>
                       <p className="rounded-2xl px-4 py-3 text-sm" style={{ background: "var(--study-surface-soft)", color: "var(--study-text)" }}>
                         {writingReview.verdict}
                       </p>
                       <div>
-                        <p className="font-semibold">Your answer</p>
-                        <p className="mt-2 whitespace-pre-wrap" style={{ color: "var(--study-text-muted)" }}>
-                          {answers[activeQuestion.id]?.trim() || "No answer submitted."}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="font-semibold">Model answer</p>
+                        <p className="review-correct-label font-semibold">Model answer</p>
                         <p className="mt-2 whitespace-pre-wrap" style={{ color: "var(--study-text-muted)" }}>
                           {activeQuestion.correctAnswer}
                         </p>
                       </div>
                       <div>
-                        <p className="font-semibold">Marking guide</p>
+                        <p className="review-explanation-label font-semibold">Explanation</p>
                         <p className="mt-2 whitespace-pre-wrap" style={{ color: "var(--study-text-muted)" }}>
                           {activeQuestion.explanation}
                         </p>
@@ -1483,56 +1626,13 @@ ${content}`,
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <p className="font-semibold">Your answer: {answers[activeQuestion.id] || "No answer selected"}</p>
-                      <p className="font-semibold">Correct answer: {activeQuestion.correctAnswer}</p>
+                      <p className="review-correct-label font-semibold">Correct answer: {activeQuestion.correctAnswer}</p>
+                      <p className="review-explanation-label font-semibold">Explanation</p>
                       <p style={{ color: "var(--study-text-muted)" }}>{activeQuestion.explanation}</p>
                     </div>
                   )}
                 </div>
               ) : null}
-            </div>
-
-            <div className="mt-4 grid grid-cols-6 gap-2 sm:grid-cols-8">
-              {session.questions.map((question, index) => {
-                const isActive = index === activeQuestionIndex;
-                const isAnswered = Boolean(answers[question.id]?.trim());
-                const isCorrectAfterSubmit =
-                  hasSubmitted &&
-                  (session.mode === "writing"
-                    ? estimateWritingScore(
-                        answers[question.id] ?? "",
-                        question.correctAnswer || question.explanation,
-                      ) >= 7
-                    : areAnswersEquivalent(
-                        answers[question.id] ?? "",
-                        question.correctAnswer,
-                      ));
-                const isWrongAfterSubmit = hasSubmitted && isAnswered && !isCorrectAfterSubmit;
-
-                return (
-                  <button
-                    key={question.id}
-                    type="button"
-                    onClick={() => setActiveQuestionIndex(index)}
-                    className="h-10 rounded-xl text-xs font-semibold"
-                    style={{
-                      background: isActive
-                        ? "var(--study-button)"
-                        : isCorrectAfterSubmit
-                          ? "rgba(16,185,129,0.16)"
-                          : isWrongAfterSubmit
-                            ? "rgba(239,68,68,0.14)"
-                            : isAnswered
-                              ? "var(--study-surface-soft)"
-                              : "transparent",
-                      border: "1px solid var(--study-border)",
-                      color: isActive ? "#ffffff" : "var(--study-text)",
-                    }}
-                  >
-                    {index + 1}
-                  </button>
-                );
-              })}
             </div>
 
             <div className="mt-5 flex items-center justify-between gap-4">
@@ -1579,13 +1679,121 @@ ${content}`,
                     color: "var(--study-text)",
                   }}
                 >
-                  Next
-                </button>
+                Next
+              </button>
               )}
+            </div>
+
+            <div className="mt-4 grid grid-cols-6 gap-2 sm:grid-cols-8">
+              {session.questions.map((question, index) => {
+                const isActive = index === activeQuestionIndex;
+                const isAnswered = Boolean(answers[question.id]?.trim());
+                const isCorrectAfterSubmit =
+                  hasSubmitted &&
+                  (session.mode === "writing"
+                    ? estimateWritingScore(
+                        answers[question.id] ?? "",
+                        question.correctAnswer || question.explanation,
+                      ) >= 7
+                    : areAnswersEquivalent(
+                        answers[question.id] ?? "",
+                        question.correctAnswer,
+                      ));
+                const isWrongAfterSubmit = hasSubmitted && isAnswered && !isCorrectAfterSubmit;
+
+                return (
+                  <button
+                    key={question.id}
+                    type="button"
+                    onClick={() => setActiveQuestionIndex(index)}
+                    className="h-10 rounded-xl text-xs font-semibold"
+                    style={{
+                      background: isActive
+                        ? "var(--study-button)"
+                        : isCorrectAfterSubmit
+                          ? "rgba(16,185,129,0.16)"
+                          : isWrongAfterSubmit
+                            ? "rgba(239,68,68,0.14)"
+                            : isAnswered
+                              ? "var(--study-surface-soft)"
+                              : "transparent",
+                      border: "1px solid var(--study-border)",
+                      color: isActive ? "#ffffff" : "var(--study-text)",
+                    }}
+                  >
+                    {index + 1}
+                  </button>
+                );
+              })}
             </div>
           </>
         )}
       </section>
+
+      <button
+        type="button"
+        onClick={() => setShowPageMenu((current) => !current)}
+        className="floating-menu-button exam-floating-menu-button md:hidden"
+        aria-label="Open exam menu"
+      >
+        <Menu size={22} />
+      </button>
+
+      <AnimatePresence>
+        {showPageMenu ? (
+          <>
+            <motion.button
+              type="button"
+              aria-label="Close menu"
+              className="fixed inset-0 z-30 bg-black/35 backdrop-blur-[2px] md:hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowPageMenu(false)}
+            />
+            <motion.div
+              className="mobile-action-sheet md:hidden"
+              initial={{ opacity: 0, y: 32, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 32, scale: 0.98 }}
+              transition={{ type: "spring", stiffness: 360, damping: 30 }}
+            >
+              <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/20" />
+              {pageMenuItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    onClick={() => {
+                      item.action();
+                      if (item.label !== "About App") {
+                        setShowPageMenu(false);
+                      }
+                    }}
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-medium transition hover:bg-white/8 active:scale-[0.99]"
+                  >
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full" style={{ background: "var(--study-surface-soft)" }}>
+                      <Icon size={17} />
+                    </span>
+                    {item.label}
+                  </button>
+                );
+              })}
+              {showAboutApp ? (
+                <div className="mt-3 rounded-2xl p-4 text-sm leading-6" style={{ background: "var(--study-surface-soft)", color: "var(--study-text-muted)" }}>
+                  <p className="font-semibold" style={{ color: "var(--study-text)" }}>
+                    About Examora
+                  </p>
+                  <p className="mt-2">
+                    Examora helps students turn topics, course outlines, PDFs, and DOCX notes into study explanations, CBT practice, writing exams, scoring, and review. Exam mode is built to feel like a focused exam room, not a normal form.
+                  </p>
+                </div>
+              ) : null}
+            </motion.div>
+          </>
+        ) : null}
+      </AnimatePresence>
     </main>
   );
 }

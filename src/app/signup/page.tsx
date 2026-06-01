@@ -53,17 +53,10 @@ export default function SignupPage() {
   useEffect(() => {
     async function handleRedirectResult() {
       try {
-        const hadPendingRedirect =
-          window.sessionStorage.getItem(GOOGLE_REDIRECT_KEY) === "pending";
         const result = await getRedirectResult(auth);
 
         if (!result?.user) {
           window.sessionStorage.removeItem(GOOGLE_REDIRECT_KEY);
-          if (hadPendingRedirect) {
-            setErrorMessage(
-              "Google sign-in did not finish on this mobile browser. Open the app in Chrome, Safari, or another full browser and try again.",
-            );
-          }
           setIsGoogleLoading(false);
           return;
         }
@@ -108,15 +101,9 @@ export default function SignupPage() {
     provider.setCustomParameters({ prompt: "select_account" });
 
     try {
-      const persistenceMode = await prepareAuthPersistence();
+      await prepareAuthPersistence();
 
       if (shouldUseGoogleRedirect()) {
-        if (persistenceMode === "memory") {
-          throw new Error(
-            "Google sign-in needs normal browser storage on this mobile browser. Open the site in Chrome, Safari, or another full browser and try again.",
-          );
-        }
-
         window.sessionStorage.setItem(GOOGLE_REDIRECT_KEY, "pending");
         await signInWithRedirect(auth, provider);
         return;

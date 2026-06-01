@@ -10,17 +10,23 @@ import {
 } from "pdfjs-dist/legacy/build/pdf.mjs";
 
 export const runtime = "nodejs";
+export const maxDuration = 30;
+
+const MAX_FILE_SIZE = 12 * 1024 * 1024;
 
 GlobalWorkerOptions.workerSrc = pathToFileURL(
   join(process.cwd(), "node_modules", "pdfjs-dist", "legacy", "build", "pdf.worker.mjs"),
 ).href;
 
 async function extractPdfText(arrayBuffer: ArrayBuffer) {
-  const loadingTask = getDocument({
+  const documentParams = {
     data: new Uint8Array(arrayBuffer),
+    disableWorker: true,
     useWorkerFetch: false,
     isEvalSupported: false,
-  });
+  } as unknown as Parameters<typeof getDocument>[0];
+
+  const loadingTask = getDocument(documentParams);
 
   const pdf = await loadingTask.promise;
   const pages: string[] = [];
@@ -91,6 +97,13 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "A file is required." },
         { status: 400 },
+      );
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      return NextResponse.json(
+        { error: "This file is too large. Upload a PDF or DOCX under 12MB." },
+        { status: 413 },
       );
     }
 
