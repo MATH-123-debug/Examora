@@ -32,6 +32,15 @@ function shouldUseGoogleRedirect() {
   return Boolean(coarsePointer || mobileUserAgent);
 }
 
+function isInAppBrowser() {
+  if (typeof window === "undefined") return false;
+  const ua = window.navigator.userAgent;
+  return (
+    /FBAN|FBAV|Instagram|WhatsApp|Snapchat|TikTok|Twitter|LinkedInApp|MicroMessenger|Line|Viber/i.test(ua) ||
+    (ua.includes("Mobile") && ua.includes("wv"))
+  );
+}
+
 export default function SignupPage() {
   const router = useRouter();
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -96,6 +105,12 @@ export default function SignupPage() {
   async function handleGoogleSignIn() {
     setErrorMessage("");
     setSuccessMessage("");
+
+    if (isInAppBrowser()) {
+      setErrorMessage("Google sign-in does not work inside WhatsApp, Instagram, or other in-app browsers. Please open this page in Chrome, Safari, or your default browser and try again.");
+      return;
+    }
+
     setIsGoogleLoading(true);
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: "select_account" });

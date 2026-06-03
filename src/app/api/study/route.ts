@@ -1,5 +1,7 @@
 import { checkRateLimit, MAX_STUDY_REQUESTS } from "@/lib/rate-limit";
 import OpenAI from "openai";
+
+export const maxDuration = 60;
 import Groq from "groq-sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { CohereClient } from "cohere-ai";

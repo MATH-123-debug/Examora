@@ -80,6 +80,8 @@ type ExamResultItem = {
   createdAtLabel: string;
 };
 
+const MAX_DIRECT_UPLOAD_SIZE = 4 * 1024 * 1024;
+
 type StoredExamResult = {
   id: string;
   title: string;
@@ -448,6 +450,26 @@ function isMathExamSource(value: string) {
   );
 }
 
+function getFriendlyError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : "";
+  if (!raw || raw.toLowerCase().includes("fetch") || raw.toLowerCase().includes("network") || raw.toLowerCase().includes("failed to fetch")) {
+    return "Network issue. Check your connection and try again.";
+  }
+  if (raw.toLowerCase().includes("rate limit") || raw.toLowerCase().includes("too many") || raw.toLowerCase().includes("429")) {
+    return "You're sending requests too fast. Wait a moment and try again.";
+  }
+  if (raw.toLowerCase().includes("timeout") || raw.toLowerCase().includes("timed out")) {
+    return "The request took too long. Try a shorter topic or fewer questions.";
+  }
+  if (raw.toLowerCase().includes("quota") || raw.toLowerCase().includes("billing") || raw.toLowerCase().includes("503") || raw.toLowerCase().includes("provider")) {
+    return "Examora is temporarily busy. Please try again in a moment.";
+  }
+  if (raw.toLowerCase().includes("no exam questions")) {
+    return "No questions were generated. Try a clearer topic or reduce the question count.";
+  }
+  return "Something went wrong. Please try again.";
+}
+
 async function readJsonResponse(response: Response) {
   const contentType = response.headers.get("content-type") ?? "";
 
@@ -810,6 +832,12 @@ export default function TestPage() {
         throw new Error("Only PDF and DOCX files are supported right now.");
       }
 
+      if (file.size > MAX_DIRECT_UPLOAD_SIZE) {
+        throw new Error(
+          "This file must be under 4MB for now. Split large notes into a smaller PDF/DOCX before uploading.",
+        );
+      }
+
       const formData = new FormData();
       formData.append("file", file);
 
@@ -964,11 +992,7 @@ ${content}`,
         JSON.stringify(nextSession),
       );
     } catch (generateError) {
-      setError(
-        generateError instanceof Error
-          ? generateError.message
-          : "Unable to generate exam.",
-      );
+      setError(getFriendlyError(generateError));
     } finally {
       setIsGenerating(false);
     }

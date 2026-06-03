@@ -137,6 +137,7 @@ type DocumentLessonState = {
 };
 
 const LOCAL_STUDY_SESSIONS_KEY = "examora-study-sessions";
+const MAX_DIRECT_UPLOAD_SIZE = 4 * 1024 * 1024;
 
 function normalizeTopicLabel(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -882,6 +883,26 @@ async function readJsonResponse(response: Response) {
   );
 }
 
+function getFriendlyError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : "";
+  if (!raw || raw.toLowerCase().includes("fetch") || raw.toLowerCase().includes("network") || raw.toLowerCase().includes("failed to fetch")) {
+    return "Network issue. Check your connection and try again.";
+  }
+  if (raw.toLowerCase().includes("rate limit") || raw.toLowerCase().includes("too many") || raw.toLowerCase().includes("429")) {
+    return "You're sending requests too fast. Wait a moment and try again.";
+  }
+  if (raw.toLowerCase().includes("timeout") || raw.toLowerCase().includes("timed out")) {
+    return "The request took too long. Try again with a shorter question or smaller file.";
+  }
+  if (raw.toLowerCase().includes("quota") || raw.toLowerCase().includes("billing") || raw.toLowerCase().includes("503") || raw.toLowerCase().includes("provider")) {
+    return "Examora is temporarily busy. Please try again in a moment.";
+  }
+  if (raw.toLowerCase().includes("format") || raw.toLowerCase().includes("invalid")) {
+    return "Something went wrong with the response. Please try again.";
+  }
+  return "Something went wrong. Please try again.";
+}
+
 function findLocalStudySession(sessionId: string) {
   return readLocalStudySessions().find((session) => session.id === sessionId);
 }
@@ -1562,8 +1583,7 @@ export default function DashboardPage() {
         );
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unable to generate response.";
+      const message = getFriendlyError(error);
       setConversation([
         ...baseConversation,
         {
@@ -1604,8 +1624,10 @@ export default function DashboardPage() {
           throw new Error("Only PDF and DOCX files are supported right now.");
         }
 
-        if (file.size > 20 * 1024 * 1024) {
-          throw new Error("Each file must be under 20MB.");
+        if (file.size > MAX_DIRECT_UPLOAD_SIZE) {
+          throw new Error(
+            "Each file must be under 4MB for now. Split large notes into a smaller PDF/DOCX before uploading.",
+          );
         }
 
         const formData = new FormData();
