@@ -128,10 +128,10 @@ export default function Home() {
                     Start free
                   </Link>
                   <Link
-                    href="/dashboard"
+                    href="/signup"
                     className="surface-panel rounded-full px-6 py-3.5 text-center text-sm font-semibold text-white transition hover:bg-white/8"
                   >
-                    Preview workspace
+                    See how it works
                   </Link>
                 </>
               )}

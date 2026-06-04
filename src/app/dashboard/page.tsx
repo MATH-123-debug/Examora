@@ -64,12 +64,12 @@ export default function DashboardHomePage() {
             >
               Examora dashboard
             </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">
-              Choose what you want to do right now.
+            <h1 className="mt-3 text-2xl font-semibold tracking-[-0.03em] sm:text-3xl lg:text-4xl">
+              Choose what you want to do.
             </h1>
           </div>
 
-          <div className="relative ml-auto">
+          <div className="relative ml-auto" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setShowMenu(false); }}>
             <button
               type="button"
               onClick={() => setShowMenu((current) => !current)}
