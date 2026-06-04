@@ -9,6 +9,28 @@ export const maxDuration = 30;
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+// pdfjs-dist uses DOMMatrix which does not exist in Node.js
+// This polyfill prevents "DOMMatrix is not defined" on Vercel
+if (typeof globalThis.DOMMatrix === "undefined") {
+  // @ts-expect-error polyfill
+  globalThis.DOMMatrix = class DOMMatrix {
+    constructor() { return this; }
+    static fromMatrix() { return new globalThis.DOMMatrix(); }
+  };
+}
+if (typeof globalThis.DOMPoint === "undefined") {
+  // @ts-expect-error polyfill
+  globalThis.DOMPoint = class DOMPoint {
+    constructor(public x = 0, public y = 0, public z = 0, public w = 1) {}
+  };
+}
+if (typeof globalThis.DOMRect === "undefined") {
+  // @ts-expect-error polyfill
+  globalThis.DOMRect = class DOMRect {
+    constructor(public x = 0, public y = 0, public width = 0, public height = 0) {}
+  };
+}
+
 async function extractPdfText(arrayBuffer: ArrayBuffer) {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
